@@ -1,0 +1,184 @@
+package tui
+
+import (
+	"deepx/agent"
+	"deepx/config"
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// overlayCentered 把 fg(modal)叠在 bg(主 UI)上居中显示。
+// 实现:
+//  1. 拆 bg 和 fg 成行;算出 fg 的最大显示宽度(以 ansi.StringWidth 测,跟终端实际渲染一致)
+//  2. 居中位置:startY = (height - fgHeight)/2, startX = (width - fgWidth)/2
+//  3. 对每一行 fg,用 ansi.Cut 把对应 bg 行的 [startX, startX+fgW) 区间挖掉换成 fg 内容
+//  4. 重新 join 输出
+//
+// bg 太短(行数少于 startY+fgH)时,缺失行不补,modal 会被截断。这种情况下终端高度不够,
+// 不在 modal 区也没什么意义。
+func overlayCentered(bg, fg string, width, height int) string {
+	fgLines := strings.Split(strings.TrimRight(fg, "\n"), "\n")
+	fgH := len(fgLines)
+	fgW := 0
+	for _, ln := range fgLines {
+		if w := ansi.StringWidth(ln); w > fgW {
+			fgW = w
+		}
+	}
+
+	startY := (height - fgH) / 2
+	startX := (width - fgW) / 2
+	if startY < 0 {
+		startY = 0
+	}
+	if startX < 0 {
+		startX = 0
+	}
+
+	bgLines := strings.Split(bg, "\n")
+	for i, fgLine := range fgLines {
+		y := startY + i
+		if y < 0 || y >= len(bgLines) {
+			continue
+		}
+		bgLines[y] = spliceLineCells(bgLines[y], fgLine, startX, fgW)
+	}
+	return strings.Join(bgLines, "\n")
+}
+
+// spliceLineCells 把 fg 的所有 cell 拼到 bg 的 [atCol, atCol+fgW) 区间,
+// 保留 bg 在该区间前后的内容(连同 ANSI 转义)。
+// 用 ansi.Cut 处理 ANSI 边界,避免 bg 的 SGR 状态污染 fg 或 fg 之后内容。
+func spliceLineCells(bg, fg string, atCol, fgW int) string {
+	pre := ansi.Cut(bg, 0, atCol)
+	// bg 在 atCol 之前太短 → 补空格到 atCol 列,保证 fg 起始位置对齐
+	if preW := ansi.StringWidth(pre); preW < atCol {
+		pre += strings.Repeat(" ", atCol-preW)
+	}
+	post := ""
+	if bgW := ansi.StringWidth(bg); atCol+fgW < bgW {
+		post = ansi.Cut(bg, atCol+fgW, bgW)
+	}
+	return pre + fg + post
+}
+
+// setupModalBlock 只渲染 modal 本身(不放置),供 overlay 使用。
+// View() 时把这个 block 叠在 mainUI 上,所以这里不能调 lipgloss.Place 占满屏。
+func (m model) setupModalBlock() string {
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(highlightColor).
+		Render("🐋 deepx — 配置 API Key")
+
+	var hint string
+	if m.setupRequired {
+		hint = "看起来这是首次启动。请粘贴你的 API key。\n" +
+			"配置会写入 ~/.deepx/model.yaml(权限 0600),之后启动不再询问。\n" +
+			"以后可直接编辑该文件,或在聊天中输入 /config 重开本面板。"
+	} else {
+		hint = "修改 API key — 旧值会被覆盖。\n" +
+			"提交后立即生效;Esc 取消不保存。\n" +
+			"如果你只想换 base_url / model id,直接编辑 ~/.deepx/model.yaml 重启即可。"
+	}
+	hintBlock := lipgloss.NewStyle().Foreground(subtleColor).Render(hint)
+
+	inputLabel := lipgloss.NewStyle().Foreground(dimColor).Render("API key:")
+	inputBlock := inputLabel + "\n  " + m.setupInput.View()
+
+	var errBlock string
+	if m.setupErr != "" {
+		errBlock = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")).
+			Render("✗ " + m.setupErr)
+	}
+
+	var footer string
+	if m.setupRequired {
+		footer = lipgloss.NewStyle().Foreground(dimColor).
+			Render("Enter 保存并继续 · Ctrl+C 退出 deepx")
+	} else {
+		footer = lipgloss.NewStyle().Foreground(dimColor).
+			Render("Enter 保存 · Esc 取消 · Ctrl+C 退出")
+	}
+
+	parts := []string{title, "", hintBlock, "", inputBlock}
+	if errBlock != "" {
+		parts = append(parts, "", errBlock)
+	}
+	parts = append(parts, "", footer)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	modalWidth := 62
+	if maxW := m.width - 4; modalWidth > maxW {
+		modalWidth = maxW
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(highlightColor).
+		Padding(1, 2).
+		Width(modalWidth).
+		Render(content)
+}
+
+// submitSetup 处理 modal 内 Enter 的提交逻辑:
+//   - 校验输入非空
+//   - 用 config.Default 构造 yaml(沿用之前模板)
+//   - 落盘
+//   - 重新 Load(保证内存版本和磁盘一致)
+//   - 把 model 内的 m.models 替换为新配置
+//   - 关闭 modal,把焦点交回主输入框
+//
+// 失败时设置 setupErr,modal 留着等用户重试。
+func (m *model) submitSetup() tea.Cmd {
+	val := strings.TrimSpace(m.setupInput.Value())
+	if val == "" {
+		m.setupErr = "API key 不能为空"
+		return nil
+	}
+	cfg := config.Default(val)
+	if err := config.Save(cfg); err != nil {
+		m.setupErr = fmt.Sprintf("保存失败: %v", err)
+		return nil
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		m.setupErr = fmt.Sprintf("重新加载失败: %v", err)
+		return nil
+	}
+	m.models = agent.ModelConfig{
+		Flash: agent.ModelEntry(loaded.Flash),
+		Pro:   agent.ModelEntry(loaded.Pro),
+	}
+	m.activeModelRole = "flash"
+	m.activeModelID = m.models.Flash.Model
+	if m.activeModelID == "" {
+		m.activeModelRole = "pro"
+		m.activeModelID = m.models.Pro.Model
+	}
+	// 重置 modal 状态
+	m.showSetup = false
+	m.setupRequired = false
+	m.setupErr = ""
+	m.setupInput.Reset()
+	m.setupInput.Blur()
+	m.input.Focus()
+
+	path, _ := config.Path()
+	m.appendChat("System", "✓ 已保存配置到 "+path)
+	return nil
+}
+
+// openSetupModal 给 /config 命令用:把当前面板切到 modal,允许 Esc 取消。
+func (m *model) openSetupModal() {
+	m.showSetup = true
+	m.setupRequired = false
+	m.setupErr = ""
+	m.setupInput.SetValue("")
+	m.setupInput.Focus()
+	m.input.Blur()
+}

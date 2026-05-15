@@ -1,0 +1,99 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# goreleaser 配置:推 vX.Y.Z tag 后 GitHub Actions 触发本配置,自动 build 5 平台二进制并发 Release。
+# 本地试跑: goreleaser release --snapshot --clean --skip=publish
+
+version: 2
+
+project_name: deepx
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: deepx
+    main: ./
+    binary: deepx
+    env:
+      # 完全无 cgo:OCR 走 purego 运行时 dlopen,编译期不依赖 C 工具链,5 平台一份 runner 全搞定。
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows arm64 OCR 依赖的 onnxruntime 在该平台测试少,先关闭;有人要可后续开。
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    # 例: deepx_v0.1.0_darwin_arm64.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- if eq .Os "darwin" }}darwin
+      {{- else if eq .Os "linux"  }}linux
+      {{- else if eq .Os "windows" }}windows{{ end }}_
+      {{- if eq .Arch "amd64" }}amd64
+      {{- else if eq .Arch "arm64" }}arm64{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+
+release:
+  github:
+    owner: itmisx
+    name: deepx
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+  header: |
+    deepx {{ .Tag }}
+
+    一键安装(macOS / Linux):
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/itmisx/deepx/main/scripts/install.sh | bash
+    ```
