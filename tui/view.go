@@ -13,10 +13,15 @@ import (
 // wrapView 把字符串 mainUI 包成 v2 tea.View,并设置 alt-screen / mouse mode 等终端能力。
 // v2 的 View() 不再返回 string,而是带元数据的结构体;终端选项也从 NewProgram 的
 // option 迁到 View 字段(声明式)。
+//
+// MouseMode 故意保持 None:bubbletea v2 只有 None/CellMotion/AllMotion 三档,
+// 任何非 None 模式都会让终端进入 DEC 1000/1006 鼠标接管协议,native 拖拽选择/复制就失效。
+// 我们选择保留终端原生选择(拖拽=选,Cmd+C=复制),代价是 chat 区不能滚轮翻滚,
+// 改用 PgUp/PgDown/↑↓ 键盘滚动(model.go 已支持)。
 func (m model) wrapView(content string) tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeNone
 	return v
 }
 
