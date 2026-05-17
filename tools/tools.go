@@ -354,14 +354,18 @@ var Tools = []Tool{
 		Executor: nil,
 		ReadOnly: true,
 		// Roles 留空 = 所有角色可见。pro 调用时拦截层会 no-op。
+		// 子 agent 不该看到本工具,但策略不在这里 — 由 agent/subagent.go 的
+		// subAgentToolDenylist 集中管理(跟 subagent system prompt 同地)。
 	},
 	{
 		Name: "CreatePlan",
 		Description: "把复杂任务拆解成可并发执行的 DAG。\n\n" +
 			"**何时调用**:\n" +
 			"- **用户明确要求『规划 / 列出步骤 / 列待办 / 先 plan / 必须先规划』等意图时,第一步必须调用本工具**\n" +
-			"- 任务含 2+ 个独立步骤 / 跨多个文件 / 需要先调研再修改\n" +
-			"- 简单任务(读单文件 / 一行替换 / 直接答事实)不要硬拆,直接答更高效\n\n" +
+			"- **任务含多个相互独立、可并发完成的子步骤**(并发读写文件除外，因为工具本省就可以并行处理)→ 拆并发节点比串行快 N 倍,且独立读取/检索类节点用 flash 还能省 token\n" +
+			"**何时别调**:\n" +
+			"- 单步骤任务(读 1 个文件 / 答事实 / 一行替换 / 跑一条命令)→ 直接做\n" +
+			"- 强串行任务(每步都依赖前一步输出)→ 没并发收益,plan 反而多一次 round trip\n\n" +
 			"**每个节点 model 字段选择**:\n" +
 			"  • `flash` — 机械步骤:读单文件 / grep / ls / git status / 统计行数 / 列目录\n" +
 			"  • `pro` — 思考步骤:综合分析 / 跨文件关联 / 代码评审 / 根因排查 / 最终汇总\n\n" +
@@ -399,6 +403,7 @@ var Tools = []Tool{
 		// Roles 留空 = 所有角色可见。
 		// 入口由 keyword router 路由,模型自行判断要不要拆 plan;
 		// flash 起手时也允许它把复杂任务拆成 DAG(其中可指定 pro 节点跑深度部分)。
+		// 子 agent 不该看到本工具(防递归 + 行为不完整),策略在 subAgentToolDenylist 集中管。
 	},
 	{
 		Name: "UpdatePlanStatus",

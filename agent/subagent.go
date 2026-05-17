@@ -8,6 +8,38 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// subAgentToolDenylist 列出子 agent 不应该看到的工具名。
+//
+// 准则:子 agent 是"被分派一个 plan 节点执行"的受控上下文,工具集应窄于主对话。
+// 当前排除两类:
+//   - SwitchModel:子 agent 角色由 CreatePlan 节点的 model 字段静态指定,不应该
+//     运行时再切。这工具的 Executor 也是 nil(主循环里拦截改 entry/role),子 agent
+//     循环没对应分支,真调到会段错误。
+//   - CreatePlan:DAG 调度只在主 agent 循环里实现,子 agent 调用也产生不了真 DAG,
+//     反而可能让模型自我递归("我要再拆个子 plan")。即使不递归也只是个无效占位。
+//
+// 把白名单/黑名单放在这里(而不是 tools/tools.go 的 Roles 字段),是因为这是
+// **子 agent 自己的策略**,跟 subagent 的 system prompt 同地维护更直观:同一个文件
+// 看到"我是什么角色 + 我用什么工具 + 我不该干什么"。
+var subAgentToolDenylist = map[string]bool{
+	"SwitchModel": true,
+	"CreatePlan":  true,
+}
+
+// buildSubAgentToolSpecs 子 agent 工具白名单。
+// 在 RoleSubAgent 角色过滤之上,再剔除 subAgentToolDenylist 里的工具。
+func buildSubAgentToolSpecs(mode AgentMode) []tools.OpenAIToolSpec {
+	base := buildToolSpecs(mode, tools.RoleSubAgent)
+	out := make([]tools.OpenAIToolSpec, 0, len(base))
+	for _, t := range base {
+		if subAgentToolDenylist[t.Function.Name] {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
 // subAgentInput 是一次子 agent 调用的全部依赖。
 // 由 runDAG 的 exec 回调按节点上下文构造,主 agent 不直接调用。
 type subAgentInput struct {
@@ -66,7 +98,7 @@ func runSubAgent(in subAgentInput) subAgentResult {
 		{Role: "user", Content: in.NodeTitle},
 	}
 
-	toolSpecs := buildToolSpecs(in.Mode, tools.RoleSubAgent)
+	toolSpecs := buildSubAgentToolSpecs(in.Mode)
 
 	// 静默 channel:streamOnce 的 TokenMsg 不进 UI,内部 drain 掉
 	silent := make(chan tea.Msg, 64)

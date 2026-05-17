@@ -594,5 +594,14 @@ func executeTool(tc ToolCall, mode AgentMode, role string) tools.ToolResult {
 			Success: false,
 		}
 	}
+	// 纵深防御:Executor 为 nil 的工具(SwitchModel / CreatePlan 等)预期在主/子 agent
+	// 工具循环里被拦截,不应该走到这里。一旦走到,直接调 nil 会段错误整个进程崩。
+	// 退而返回失败给 LLM,让它自纠或交给上层重试,而不是 panic。
+	if t.Executor == nil {
+		return tools.ToolResult{
+			Output:  fmt.Sprintf("工具 %s 当前角色 (%s) 不能直接执行(应在 agent 循环内被拦截);请用别的工具完成此步骤", t.Name, role),
+			Success: false,
+		}
+	}
 	return t.Executor(args)
 }
