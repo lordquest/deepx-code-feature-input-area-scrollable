@@ -349,7 +349,15 @@ func (m model) rightPanelView() string {
 	}
 
 	rows := []string{}
-	rows = append(rows, section("Workspace", []string{subtle(cwd)})...)
+	// Workspace section:标题行尾接 session 哈希 (sha1(abs(wd))[:16],对应
+	// ~/.deepx/sessions/<hash>/ 目录)。不走 section() 助手是为了让哈希用
+	// subtle 暗色,而不是被 strings.ToUpper 大写化跟标题挤一起抢视觉权重。
+	workspaceTitle := lipgloss.NewStyle().Foreground(highlightColor).Render("◆ ") +
+		lipgloss.NewStyle().Foreground(accentColor).Bold(true).Render("WORKSPACE")
+	if m.session != nil {
+		workspaceTitle += " " + subtle("("+m.session.SessionID()+")")
+	}
+	rows = append(rows, workspaceTitle, "  "+subtle(cwd), "")
 	rows = append(rows, section("Models", []string{
 		flashIndicator + label("flash ") + " " + flashID,
 		proIndicator + label("pro   ") + " " + proID,
