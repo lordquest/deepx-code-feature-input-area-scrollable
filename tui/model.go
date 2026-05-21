@@ -1456,6 +1456,8 @@ func (m *model) renderMarkdown(content string, width int) string {
 		// 表格、bold 标记全被 dim 字面化的 bug。
 		if strings.HasPrefix(line, "~~~") || strings.HasPrefix(line, "```") {
 			marker := line[:3]
+			// infostring(fence 后的 lang 标签)区分 diff 块,后面按 -/+/@ 上色。
+			info := strings.TrimSpace(line[3:])
 			closeIdx := -1
 			// 扫到下一个 rolePrefix 行或者 marker 闭合;rolePrefix 是消息硬边界,
 			// 跨边界的 fence 一律视为未闭合,避免上一条消息污染下一条。
@@ -1469,8 +1471,13 @@ func (m *model) renderMarkdown(content string, width int) string {
 				}
 			}
 			if closeIdx > i {
+				isDiff := info == "diff"
 				for k := i; k <= closeIdx; k++ {
-					out = append(out, dim(lines[k]))
+					if isDiff && k != i && k != closeIdx {
+						out = append(out, colorizeDiffLine(lines[k], dim))
+					} else {
+						out = append(out, dim(lines[k]))
+					}
 				}
 				i = closeIdx
 				continue
@@ -1534,6 +1541,26 @@ func (m *model) renderMarkdown(content string, width int) string {
 	// ansi.Wrap 对每行按 width 软换行,保留 ANSI styling。
 	// 旧 glamour 用 WithWordWrap 做这事,迁移后必须手动补上,否则长行溢出 viewport。
 	return ansi.Wrap(strings.Join(out, "\n"), width, " -")
+}
+
+// colorizeDiffLine 按 unified-diff 行首给 ~~~diff 块的内容上色:
+//   - `+` 绿(color 10) — 新增
+//   - `-` 红(color 9)  — 删除
+//   - `@` cyan(color 14)— hunk header (`@@ ... @@`)
+//
+// 其它行(context 行、`... (N more lines)` 等)走 fallback (调用方传入的 dim)。
+// 单独 `+` / `-` / `@` 行视为前缀:用 HasPrefix 而不是首字符匹配,避免空行误判。
+func colorizeDiffLine(line string, fallback func(...string) string) string {
+	switch {
+	case strings.HasPrefix(line, "+"):
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(line)
+	case strings.HasPrefix(line, "-"):
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(line)
+	case strings.HasPrefix(line, "@"):
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(line)
+	default:
+		return fallback(line)
+	}
 }
 
 // isMessagePrefix 判断一行是否以已知 rolePrefix 起手(deepx / 用户 / system / 兜底 role)。

@@ -97,7 +97,8 @@ func formatUpdatePreview(icon, argsJSON string) string {
 	}
 	var sb strings.Builder
 	sb.WriteString(header)
-	// 空行 + ~~~diff:markdown 块边界,glamour 会按 diff 语法上色(- 红 / + 绿)
+	// 空行 + ~~~diff:markdown 块边界,renderMarkdown 识别 infostring "diff" 后
+	// 把 `-` 行染红、`+` 行染绿、`@@` hunk 头染 cyan(见 model.go 的 colorizeDiffLine)。
 	sb.WriteString("\n\n~~~diff\n")
 	writeDiffBlock(&sb, oldS, "- ")
 	writeDiffBlock(&sb, newS, "+ ")
