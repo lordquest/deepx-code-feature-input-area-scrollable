@@ -402,12 +402,17 @@ func (m model) rightPanelView() string {
 		modeLine,
 	})...)
 	// 首轮 API 调用结束才能拿到 lastUsage,没拿到前用 "—" 占位,保持布局一致。
+	// cache 行始终显示,即便 0% 也比"突然消失一行"更稳。
+	// 分母用 PromptTokens 而非 hit+miss:DeepSeek API 保证 prompt_tokens = hit + miss,
+	// 但 hit/miss 是 DeepSeek 私有字段,兼容 OpenAI 的模型可能不返回,用 PromptTokens 更稳。
 	promptStr, outputStr, cacheStr := "—", "—", "—"
 	if u := m.lastUsage; u != nil {
 		promptStr = formatTokenCount(u.PromptTokens) + " tok"
 		outputStr = formatTokenCount(u.CompletionTokens) + " tok"
-		if total := u.PromptCacheHitTokens + u.PromptCacheMissTokens; total > 0 {
-			cacheStr = strconv.Itoa(u.PromptCacheHitTokens*100/total) + "% hit"
+		if u.PromptTokens > 0 {
+			cacheStr = strconv.Itoa(u.PromptCacheHitTokens*100/u.PromptTokens) + "% hit"
+		} else {
+			cacheStr = "0% hit"
 		}
 	}
 	rows = append(rows, section("Usage", []string{
