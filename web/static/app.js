@@ -97,6 +97,35 @@ createApp({
     toolIcon(s) {
       return { done: '✓', running: '▶', failed: '✗' }[s] || '·';
     },
+    // mainArg 从工具 args JSON 里抽一个最具代表性的字段,显示在 summary 行(对齐 TUI 的
+    // extractMainArg)。完整 args 仍在展开后的 <pre> 里。解析失败 / 无字段返回空串。
+    mainArg(tc) {
+      if (!tc.args) return '';
+      let a;
+      try { a = JSON.parse(tc.args); } catch (_) { return ''; }
+      if (!a || typeof a !== 'object') return '';
+      let v = '';
+      switch (tc.name) {
+        case 'Read': case 'Write': case 'Update': case 'List': case 'Tree': case 'OCR':
+          v = a.path; break;
+        case 'Glob':
+          v = a.path && a.path !== '.' ? `${a.pattern} in ${a.path}` : a.pattern; break;
+        case 'Grep':
+          v = a.path ? `${a.pattern} in ${a.path}` : a.pattern; break;
+        case 'Search': v = a.query; break;
+        case 'Fetch': v = a.url; break;
+        case 'LoadSkill': v = a.name; break;
+        case 'Bash': v = a.command; break;
+        case 'SwitchModel': v = a.reason; break;
+        case 'Memory': v = Array.isArray(a.keywords) ? a.keywords.join(' ') : ''; break;
+        case 'UpdatePlanStatus':
+          v = a.id && a.status ? `${a.id} → ${a.status}` : (a.id || ''); break;
+        case 'CreatePlan': v = Array.isArray(a.plans) ? `${a.plans.length} nodes` : ''; break;
+        default: v = a.path || '';
+      }
+      v = (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim();
+      return v.length > 80 ? v.slice(0, 77) + '…' : v;
+    },
     scrollDown() {
       this.$nextTick(() => {
         const el = this.$refs.msgList;

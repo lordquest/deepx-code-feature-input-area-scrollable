@@ -140,6 +140,11 @@ body {
 .tool summary { cursor: pointer; padding: 6px 10px; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; }
 .tool summary::-webkit-details-marker { display: none; }
 .tool .box { width: 14px; text-align: center; flex-shrink: 0; }
+.tool .tool-name { flex-shrink: 0; }
+.tool .tool-arg {
+  color: var(--dim); font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
 .tool.done .box { color: var(--green); }
 .tool.running .box { color: var(--accent); }
 .tool.failed .box { color: var(--red); }

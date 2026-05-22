@@ -86,7 +86,9 @@
           <div v-if="!toolCalls.length" class="empty">—</div>
           <details v-for="tc in toolCalls" :key="tc.id" class="tool" :class="tc.status">
             <summary>
-              <span class="box">{{ toolIcon(tc.status) }}</span>{{ tc.name }}
+              <span class="box">{{ toolIcon(tc.status) }}</span>
+              <span class="tool-name">{{ tc.name }}</span>
+              <span class="tool-arg" v-if="mainArg(tc)">{{ mainArg(tc) }}</span>
             </summary>
             <pre class="tool-args" v-if="tc.args">{{ tc.args }}</pre>
             <pre class="tool-out" v-if="tc.output">{{ tc.output }}</pre>
