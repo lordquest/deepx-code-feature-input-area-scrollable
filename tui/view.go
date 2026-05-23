@@ -531,6 +531,8 @@ func (m model) rightPanelView() string {
 			lipgloss.NewStyle().Foreground(codegraphColor(cgState)).Render(T("codegraph."+cgState)),
 		label(T("panel.label.cgcalls")) + " " + strconv.Itoa(tools.CodeGraphCalls()),
 	})...)
+	// 规划进度:始终显示(无规划时 0/0)。完整 plan 树在 chat 区展示,右栏只放摘要。
+	rows = append(rows, section(T("panel.plan"), renderPlanSummary(m.plan, rightPanelWidth-4))...)
 	rows = append(rows, section(T("panel.commands"), []string{
 		label("/plan   ") + "Write/Bash off",
 		label("/auto   ") + "Write/Bash on",
@@ -538,11 +540,6 @@ func (m model) rightPanelView() string {
 		label("/lang   ") + "zh / en",
 		label("/help   ") + "all cmds",
 	})...)
-
-	// 完整 plan 树在 chat 区显示,右栏只放进度摘要。
-	if planLines := renderPlanSummary(m.plan, rightPanelWidth-4); len(planLines) > 0 {
-		rows = append(rows, section(T("panel.plan"), planLines)...)
-	}
 
 	// 删掉最后那行多余空行
 	if len(rows) > 0 && rows[len(rows)-1] == "" {

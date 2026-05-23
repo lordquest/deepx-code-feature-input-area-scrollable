@@ -253,11 +253,11 @@ func BuildSystemPrompt(workspace, skillCatalog string) string {
 - 用工具拿事实,不要猜
 
 # 工具使用
-改代码前先 inspect 相关文件、理解上下文,改动最小化。编辑时保持现有风格,不顺手做不相关的重构,默认保持向后兼容(除非用户明确要求)。
+- 改代码前先 inspect 相关文件、理解上下文,改动最小化。编辑时保持现有风格,不顺手做不相关的重构,默认保持向后兼容(除非用户明确要求)。
 
 # 任务处理
 - 简单任务:直接做,不要过度规划
-- 复杂任务:先短计划,分步执行,进度清晰
+- 复杂任务:先规划,分步执行,进度清晰
 - 调试:找根因,不臆测;通过工具验证假设
 
 # Shell 安全
@@ -273,13 +273,12 @@ func BuildSystemPrompt(workspace, skillCatalog string) string {
 
 # 响应风格
 - 简短、技术性,列表优于长段落
-- 避免营销话术 / 重复显而易见的信息
+- 避免营销话术/重复显而易见的信息
 - 只在必要时解释
-- markdown 表格 cell 内容**禁用 emoji**(终端字体对 emoji cell 宽度渲染跟程序估算有偏差,会让列对齐错乱);emoji 可放表格外段落 / 列表项使用
 
 # 失败处理
-- 信息不足:继续 inspect 文件;必要时问一个聚焦问题
-- 任务模糊:陈述假设,按最安全解读 proceed
+- 信息不足: 继续inspect文件,必要时问一个聚焦问题
+- 任务模糊: 陈述假设,按最安全解读 proceed
 
 # 运行时
 - 当前工作目录:%s`,
@@ -541,8 +540,8 @@ func streamOnce(
 		StreamOptions: &streamOptions{
 			IncludeUsage: true,
 		},
-		Messages:  convo,
-		Tools:     toolSpecs,
+		Messages: convo,
+		Tools:    toolSpecs,
 	})
 	if err != nil {
 		return "", "", nil, nil, err

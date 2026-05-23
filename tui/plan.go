@@ -72,19 +72,18 @@ func planStatusBox(s agent.PlanStatus) string {
 	return "[ ]"
 }
 
-// renderPlanSummary 右栏极简摘要:只显示完成进度 "X/Y done"。
+// renderPlanSummary 右栏极简摘要:始终显示完成进度 "X/Y";无规划时为 "0/0"。
 func renderPlanSummary(p *planState, _ int) []string {
-	if p == nil || len(p.items) == 0 {
-		return nil
-	}
 	total, done := 0, 0
-	for _, pl := range p.items {
-		total++
-		if pl.Status == agent.PlanStatusDone {
-			done++
+	if p != nil {
+		for _, pl := range p.items {
+			total++
+			if pl.Status == agent.PlanStatusDone {
+				done++
+			}
 		}
 	}
-	return []string{fmt.Sprintf("%d/%d done", done, total)}
+	return []string{fmt.Sprintf("%d/%d", done, total)}
 }
 
 // planModelTag 渲染一个 plan 节点的 model 标签,显示在 title 后。
