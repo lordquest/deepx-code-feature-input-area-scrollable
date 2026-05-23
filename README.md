@@ -224,11 +224,6 @@ rm -f ~/.local/bin/deepx && rm -rf ~/.deepx
 # 删除 %LOCALAPPDATA%\Programs\deepx 和 %USERPROFILE%\.deepx
 ```
 
-## 已知限制
-
-- macOS Terminal.app + Apple Color Emoji：emoji cell 宽度偶尔偏移。换 iTerm2 / Ghostty / kitty 解决
-- Cmd+A 全选不可用（macOS GUI 拦截），用 `Ctrl+Shift+A` / `Cmd+Shift+A`
-
 ## License
 
 [MIT](LICENSE) © 2026 itmisx
