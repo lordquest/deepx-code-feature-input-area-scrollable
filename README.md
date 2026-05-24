@@ -1,6 +1,8 @@
-# deepx
+# deepx-code
 
-> 本地优先的 AI 编码 agent —— 完整上下文恢复、零延迟路由、代码图谱导航、DeepSeek 缓存原生友好。
+**简体中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
+> deepseek标配coding agent,支持本地OCR图片识别，自动上下文压缩，原生codegraph支持，根本上减少token的消耗
 
 ![deepx screenshot](assets/screenshot.jpg)
 
@@ -9,7 +11,7 @@
 - 🚀 golang开发，小巧快速，全平台覆盖。
 - 🚀 gob二进制持久化。tool_calls、tool results、reasoning_content 全部保留，LLM 无缝续接
 - 🚀 分层压缩 + 旧摘要合并
-- 🚀 支持skill，MCP
+- 🚀 标配skill，MCP，无缝融合现有claude生态
 - 🚀 本地关键词路由。零延迟、零 token 消耗，命中直接升 pro
 - 🚀 自动模型切换。根据问题复杂度，自动升级为pro模型
 - 🚀 Plan DAG 并发调度。按依赖关系并行跑子 agent，每个节点独立选模型
@@ -32,35 +34,26 @@ curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/inst
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
-### 使用
+## 使用
+
+### 进入工作空间
 
 ```bash
 cd <你的项目目录>
 deepx
 ```
 
-首次启动弹出配置弹窗，填入 API key 后自动写入 `~/.deepx/model.yaml`。
+### 配置deepseek API KEY
 
-## 配置
+首次启动弹出配置弹窗，配置 API key
 
-```yaml
-# ~/.deepx/model.yaml
-flash:
-  base_url: https://api.deepseek.com
-  model: deepseek-v4-flash
-  api_key: sk-xxx
-  context_window: 1048576
+### 配置Skill
 
-pro:
-  base_url: https://api.deepseek.com
-  model: deepseek-v4-pro
-  api_key: sk-xxx
-  context_window: 1048576
-```
+当前目录配置 .deepx/skills/
 
-flash / pro 独立配置 endpoint 和模型 —— flash 用便宜小模型、pro 用 Claude / GPT 都行，只要兼容 OpenAI Chat Completions 协议。
+### 配置MCP
 
-`context_window` 控制会话压缩触发阈值（`窗口 × 70%`）。
+通过指令 /mcp-add 添加mcp
 
 ## 核心机制
 
@@ -123,13 +116,41 @@ Ctrl+V 粘贴图片 → deepx 自动落盘 → LLM 通过 `OCR` 工具（PaddleO
 
 ### 代码图谱
 
-deepx 内置代码图谱，模型可以直接「跳到定义、找谁调用了某函数、查某接口被哪些类型实现、估算改动一个符号会牵连到哪些下游」，不用满仓库 grep + 一个个翻文件 —— 更准、更省 token。
+deepx 内置代码图谱引擎，模型可以直接做符号级导航 + 调用关系查询，代替满仓库 grep + 一个个翻文件。
 
-- 覆盖 **Go 及 20+ 主流语言**（TypeScript / JavaScript / Python / Java / Rust / C / C++ / C# / Ruby / PHP / Kotlin / Swift / Scala / Dart 等）。
-- Go 还能**精确到隐式接口实现**（"谁实现了这个接口"——这是文本搜索查不出来的）。
-- 开机后台预建索引、改文件自动失效重建；无结果时会如实说明覆盖边界，不会误导。
+**操作速查表**
 
-启用后右栏状态区会显示「代码图谱」的就绪状态与调用次数。
+| op             | 用途                 | 必填参数                   | 说明                                            |
+| :------------- | :------------------- | :------------------------- | :---------------------------------------------- |
+| `def`          | 符号定义在哪         | `name`                     | 函数/类型/方法/变量的定义位置                   |
+| `refs`         | 谁用到了某符号       | `name`                     | 全部引用（定义 + 调用 + 取值）                  |
+| `symbols`      | 按名模糊搜索符号     | `name`(可选), `kind`(可选) | `kind` 可过滤: func/method/type/var/const/field |
+| `outline`      | 一个文件有哪些符号   | `path`                     | 文件大纲                                        |
+| `imports`      | 文件 import 了哪些包 | `path`                     | 依赖概览                                        |
+| `callers`      | 谁调用了某函数       | `name`                     | **改函数时查影响面**，Go 隐式接口也覆盖         |
+| `callees`      | 某函数调用了哪些     | `name`                     | 理解函数内部实现流程                            |
+| `implementers` | 谁实现了某接口       | `name`                     | 对 Go 隐式接口**精确到符号级**，grep 查不出     |
+| `subtypes`     | 谁继承/嵌入了某类型  | `name`                     | 子类型追踪                                      |
+| `supertypes`   | 某类型派生自什么     | `name`                     | 父类型/嵌入接口                                 |
+| `impact`       | 改某符号牵连哪些下游 | `name`, `depth`(默认3)     | 传递闭包，blast radius 分析                     |
+| `reindex`      | 强制重建索引         | —                          | 缓存异常时手动触发                              |
+
+**何时用 CodeGraph vs Grep**
+
+| 场景                             |                 用                 |
+| :------------------------------- | :--------------------------------: |
+| 函数/类型/变量定义或引用         |    ✅ CodeGraph `def` / `refs`     |
+| 调用链上下游                     | ✅ CodeGraph `callers` / `callees` |
+| 接口实现关系                     |    ✅ CodeGraph `implementers`     |
+| 改代码的影响范围                 |       ✅ CodeGraph `impact`        |
+| 文件里有哪些符号                 |       ✅ CodeGraph `outline`       |
+| 注释/字符串/配置里的文本         |              ❌ Grep               |
+| 非代码文件（JSON/MD/Shell/YAML） |              ❌ Grep               |
+| 不确定符号名且模糊搜索           |     ✅ `symbols` + `kind` 过滤     |
+
+**覆盖语言**：Go（stdlib 精确解析） + TypeScript / JavaScript / Python / Java / Rust / C / C++ / C# / Ruby / PHP / Kotlin / Swift / Scala / Dart / Vue / Svelte。
+
+**工作机制**：启动时后台 `Prewarm` 自动建立索引，状态栏显示 `loading → ready`。文件被 Write/Update 工具修改后自动标记为 `stale`，下次查询时增量重建。查询结果按 `文件:行` 展示（含签名/调用方），超出上限自动截断分页。
 
 ## 工具集
 
@@ -202,6 +223,7 @@ global 级     ~/.agents/skills/ → ~/.claude/skills/ → ~/.deepx/skills/
 - **工具不预注入**：`Memory` / `LoadSkill` 只在调用时才进 context
 - **system prompt 极简**：仅跨工具规约 + workspace，工具触发条件在各自 description 里
 - **DeepSeek KV cache 友好**：tools 数组不随模式变化；system prompt gob 恢复时版本感知
+- **原生支持代码图谱**：根上减少token的浪费
 
 ## 项目结构
 
