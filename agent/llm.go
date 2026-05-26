@@ -324,11 +324,10 @@ func coreSystemPrompt(workspace, skillCatalog string) string {
 
 # 工具使用
 - 改代码前先 inspect 相关文件、理解上下文,改动最小化。编辑时保持现有风格,不顺手做不相关的重构,默认保持向后兼容(除非用户明确要求)。
+- 查代码符号(函数/类型/方法)的定义、调用关系、实现者、继承请优先用 CodeGraph工具(更准、不误命中注释/字符串)。
 
-# 任务处理
-- 简单任务:直接做,不要过度规划
-- 复杂任务:先规划,分步执行,进度清晰
-- 调试:找根因,不臆测;通过工具验证假设
+# 技能skill使用
+- 在实现功能、修复 bug、重构或 review 代码之前，读取karpathy-guidelines，并遵照其规则执行。
 
 # Shell 安全
 - 不主动执行破坏性命令(rm -rf / drop / force push 等)
