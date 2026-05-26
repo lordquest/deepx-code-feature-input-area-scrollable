@@ -123,6 +123,10 @@ type model struct {
 	spinner  spinner.Model
 	thinking bool
 
+	// activeTool 是当前正在执行的工具名(ToolCallStart 时置,TokenMsg/流结束时清空)。
+	// 仅用于输入框上方的活动状态行,告诉用户"此刻在跑哪个工具"。
+	activeTool string
+
 	// session 是当前 workspace 的持久化句柄。启动时建/打开 ~/.deepx/sessions/{sid}/,
 	// 写时机:user enter 后 + assistant 流结束(StreamDoneMsg)时各 append 一行。
 	// Memory 工具通过 tools.SetMemorySession 拿到同一句柄,扫 jsonl 命中关键词。
@@ -190,6 +194,7 @@ type model struct {
 	turnElapsed     time.Duration // 上一轮总耗时,streaming=false 时显示这个
 	turnInputChars  int           // 本轮 user 发送时的 history 总字符数(快照)
 	turnOutputChars int           // 本轮 assistant content 累计字符数(只算 content,跳过 reasoning)
+	turnToolCalls   int           // 本轮工具调用次数,流结束时打进"完成"行
 
 	// cancelAgent 取消后台 agent 的 context。ESC 中断时调用,真正终止 HTTP 请求和工具调用。
 	cancelAgent context.CancelFunc
@@ -513,6 +518,8 @@ func (m model) submitUserInput(input string) (model, tea.Cmd) {
 	m.turnStartedAt = time.Now()
 	m.turnInputChars = sumHistoryChars(m.history)
 	m.turnOutputChars = 0
+	m.turnToolCalls = 0
+	m.activeTool = ""
 
 	m.refreshViewport()
 
@@ -1116,6 +1123,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 助手正式回复开始,停止 spinner,把文本写进 chat
 		m.status = "streaming"
 		m.thinking = false
+		m.activeTool = ""
 		text := string(msg)
 		m.currentReply.WriteString(text)
 		// 上一段若是 tools(刚执行完工具,模型继续说话),切回 assistant 段。
@@ -1132,6 +1140,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// 工具调用 = 一次"动作",紧凑单行展示:<icon> Name (主参数)
 		m.status = "tool"
+		m.turnToolCalls++
+		m.activeTool = msg.Name
 		line := formatToolCallLine(msg.Name, msg.Args)
 		// 切到 tools 段。tools 段不走 markdown 渲染(refreshViewport 里特判),
 		// 所以单 \n 直接换行,无需 hard break trick。连续 tool_call 同段归并 → 一组色条。
@@ -1305,9 +1315,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "idle"
 		m.streaming = false
 		m.thinking = false
+		m.activeTool = ""
 		m.streamCh = nil
 		m.cancelAgent = nil
 		m.turnElapsed = time.Since(m.turnStartedAt)
+		// 完成态(用时 + 工具次数)由输入框上方的活动状态行展示(statusFooterLine 空闲分支),
+		// 不再单独往 chat 里打一行,避免和底部"就绪/完成"指示重复。
 		m.refreshViewport()
 
 		// 显示区按字节预算自动裁剪 (chatLog.Append/Open 内部已调 trim),
@@ -1347,6 +1360,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "error"
 		m.streaming = false
 		m.thinking = false
+		m.activeTool = ""
 		m.streamCh = nil
 		m.cancelAgent = nil
 		m.turnElapsed = time.Since(m.turnStartedAt)
@@ -1801,9 +1815,8 @@ func (m *model) renderChatBaseContent(w int) string {
 	if m.plan != nil && m.streaming && !m.plan.allFinished() {
 		content += "\n" + indentBlock(renderPlanForChat(m.plan), "  ")
 	}
-	if m.thinking {
-		content += "\n  " + m.spinner.View() + " thinking..."
-	}
+	// 思考动画不再画在 chat 末尾 —— 已统一移到输入框上方的活动状态行(statusFooterLine),
+	// 避免一次 thinking 出现在两个地方。
 	return content
 }
 

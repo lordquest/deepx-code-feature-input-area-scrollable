@@ -203,6 +203,17 @@ var translations = map[string]map[Lang]string{
 	"status.tool":      {LangZH: "tool", LangEN: "tool"},
 	"status.error":     {LangZH: "error", LangEN: "error"},
 
+	// === 输入框上方活动行 / 完成行 ===
+	// footer 状态词单独成键(不复用右栏紧凑的 status.* 英文 token),这样能给中文模式
+	// 提供本地化文案。footer.* 的 key 后缀与 m.status 取值一一对应(thinking/streaming/tool)。
+	"footer.interrupt": {LangZH: "Esc 中断", LangEN: "Esc to interrupt"},
+	"footer.thinking":  {LangZH: "思考中", LangEN: "Thinking"},
+	"footer.streaming": {LangZH: "输出中", LangEN: "Responding"},
+	"footer.tool":      {LangZH: "调用工具", LangEN: "Running tool"},
+	"footer.error":     {LangZH: "出错", LangEN: "Error"},
+	"done.done":        {LangZH: "完成", LangEN: "Done"},
+	"done.tools":       {LangZH: "次工具调用", LangEN: "tool calls"},
+
 	// === CodeGraph 状态值 ===
 	"codegraph.idle":    {LangZH: "—", LangEN: "—"},
 	"codegraph.loading": {LangZH: "加载", LangEN: "loading"},

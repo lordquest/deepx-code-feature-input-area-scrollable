@@ -157,6 +157,12 @@ func (m model) View() tea.View {
 	// 顶部 / 底部按 inputTopPad / inputBotPad 留白,normalizeFrame 会把空行补成整宽。
 	inputLines := make([]string, 0, len(inputRows)+inputTopPad+inputBotPad)
 	for i := 0; i < inputTopPad; i++ {
+		// 顶部留白的第一行用来挂活动状态行(运行中 spinner+耗时 / 空闲"就绪"),
+		// 其余仍是空行。inputTopPad 不变,光标 Y(bodyH+inputTopPad)也不变。
+		if i == 0 && inputTopPad > 0 {
+			inputLines = append(inputLines, m.statusFooterLine(m.width))
+			continue
+		}
 		inputLines = append(inputLines, "") // 顶部留白行
 	}
 	inputLines = append(inputLines, inputRows...)
@@ -295,6 +301,46 @@ func codegraphColor(s string) color.Color {
 		return lipgloss.Color("11")
 	}
 	return subtleColor
+}
+
+// statusFooterLine 渲染输入框正上方那一行活动状态——把"在跑还是结束了"放到用户注意力
+// 所在处(主列底部),而不是只藏在右侧状态栏。
+//   - 运行中:spinner(thinking/tool 时转)/状态图标 + 状态词 + 实时耗时 + 当前工具,右侧贴 "Esc 中断"。
+//   - 空闲:一个暗色 "● 就绪",和运行态形成明显对比。
+func (m model) statusFooterLine(width int) string {
+	dim := lipgloss.NewStyle().Foreground(subtleColor).Render
+	if !m.streaming {
+		// 上一轮出错:红色 ✗ 出错(chat 里已有具体错误信息)。
+		if m.status == "error" {
+			return lipgloss.NewStyle().Foreground(statusColor("error")).Render("✗ " + T("footer.error"))
+		}
+		// 跑过至少一轮:绿色 ✓ 完成 + 用时 + 工具数(取代之前打进 chat 的 done 行)。
+		if m.turnElapsed > 0 {
+			done := lipgloss.NewStyle().Foreground(statusColor("idle")).Render("✓ " + T("done.done"))
+			s := done + dim(" · "+formatElapsed(m.turnElapsed))
+			if m.turnToolCalls > 0 {
+				s += dim(" · " + strconv.Itoa(m.turnToolCalls) + " " + T("done.tools"))
+			}
+			return s
+		}
+		// 还没跑过任何一轮:留空。活动行的价值在"运行↔完成"的对比,启动时常挂个"就绪"只是噪音。
+		return ""
+	}
+	head := statusIcon(m.status)
+	if m.thinking {
+		head = m.spinner.View() // thinking / 工具执行期间动起来
+	}
+	statusWord := lipgloss.NewStyle().Foreground(statusColor(m.status)).Bold(true).Render(T("footer." + m.status))
+	left := head + " " + statusWord + dim(" · "+formatElapsed(time.Since(m.turnStartedAt)))
+	if m.activeTool != "" {
+		left += dim(" · " + m.activeTool)
+	}
+	hint := dim(T("footer.interrupt"))
+	gap := width - ansi.StringWidth(ansi.Strip(left)) - ansi.StringWidth(ansi.Strip(hint))
+	if gap < 1 {
+		return left // 太窄,中断提示让位,左侧由 normalizeFrame 截断
+	}
+	return left + strings.Repeat(" ", gap) + hint
 }
 
 func statusIcon(s string) string {
