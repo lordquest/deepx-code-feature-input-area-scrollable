@@ -1737,6 +1737,10 @@ func (m *model) collectSelectionText() string {
 // 渲染器按 width 缓存:同样 width 复用同一个 TermRenderer 实例,window resize 时
 // 新 width 触发新实例创建(旧实例进 cache,内存占用极小)。glamour 的 wordWrap 在
 // renderer 创建时固定,所以 width 必须 = key。
+// backslashSentinel 是渲染期临时替换 `\.` 中反斜杠的私有区码点(U+E000),goldmark 不会把它当转义符,
+// 宽度也是 1(与 `\` 一致,不影响换行计算),渲染后再还原。正文里几乎不可能出现该码点。
+const backslashSentinel = "\uE000"
+
 func (m *model) renderMarkdown(content string, width int) string {
 	if width <= 0 || content == "" {
 		return content
@@ -1747,10 +1751,15 @@ func (m *model) renderMarkdown(content string, width int) string {
 		// 极端情况(glamour 初始化失败)兜底返回 raw,不让 chat 区空白
 		return content
 	}
+	// 只保护 `\.`:goldmark 会把 `\.` 当转义点吃掉反斜杠,Windows 路径
+	// C:\Users\…\.deepx 会丢成 C:\Users\….deepx。送进渲染器前把 `\.` 里的反斜杠换成私有区哨兵
+	// (goldmark 原样透传、不触发转义),渲染完再换回。其它转义(`\*` 等)保持 markdown 原义。
+	content = strings.ReplaceAll(content, "\\.", backslashSentinel+".")
 	out, err := r.Render(content)
 	if err != nil {
-		return content
+		return strings.ReplaceAll(content, backslashSentinel, "\\")
 	}
+	out = strings.ReplaceAll(out, backslashSentinel, "\\")
 	// glamour 输出末尾常带 \n,trim 掉避免段间多 1 空行
 	return strings.TrimSuffix(out, "\n")
 }

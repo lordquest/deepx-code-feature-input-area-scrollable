@@ -163,6 +163,7 @@ func (m *model) submitSetup() tea.Cmd {
 	m.input.Focus()
 
 	path, _ := config.Path()
+	// 反斜杠转义已在 renderMarkdown 渲染层统一处理(见 backslashSentinel),这里不必再包反引号。
 	m.appendChat("System", T("setup.saved_to")+path)
 	return nil
 }
