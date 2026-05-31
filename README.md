@@ -23,6 +23,7 @@
 - **💰 缓存友好，长会话省钱** —— 围绕 DeepSeek 前缀缓存设计，实测 ~99% 命中；本地关键词路由零延迟、零 token 起手。
 - **🧭 内置代码图谱（codegraph）** —— 符号级跳定义 / 找调用 / 接口实现 / 影响面分析，Go 经 `go/types` 精确解析，替代满仓库 grep。
 - **👀 本地图片 OCR（PaddleOCR）** —— 离线读图，丢一张截图就能识别其中文字，不依赖多模态 API。
+- **📎 `@` 文件 / 目录引用** —— 输入框打 `@` 弹本地模糊路径选择器，选中即把 `@路径` 塞进消息；模型按需调 Read（文件）/ List（目录），精准给上下文不用全塞。
 - **🧠 双模型自动路由** —— flash 起手省钱，复杂任务自动升 pro；也可用 `/model flash|pro` 锁定模型、`/auto` `/plan` `/review` 切模式。
 - **🗂️ 顺序 Todo + 并发 Plan DAG** —— 多步任务用可见待办清单逐步勾选；可并行的独立子任务拆成 DAG 派并发子 agent。
 - **💾 无损会话持久化** —— gob 完整保留 `tool_calls` / `tool results` / `reasoning_content`，重启无缝续接；超窗自动分层压缩。
@@ -49,11 +50,15 @@
 
 **1. 安装**
 
-```bash
-# macOS / Linux(尾部 `&& exec $SHELL` 让当前 shell 立即拿到新 PATH,不用再 source 或重开 terminal)
-curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
+macOS / Linux(尾部 `&& exec $SHELL` 让当前 shell 立即拿到新 PATH,不用再 source 或重开 terminal):
 
-# Windows (PowerShell)
+```bash
+curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
+```
+
+Windows(PowerShell):
+
+```powershell
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
@@ -193,6 +198,7 @@ CreatePlan
 | :------------------------- | :-------------------------------- |
 | `/plan` `/auto` `/review`  | 切换模式（只读 / 全自动 / 审核）  |
 | `/model`                   | 弹窗选择模型（auto 按任务路由 / flash / pro 定死）；也可 `/model flash` 直接指定 |
+| `/reasoning`               | 弹窗设置 `thinking` / `reasoning_effort`（flash/pro 各自独立；空值=不发该字段，对 MiMo 等不支持的模型零侵入） |
 | `/compact`                 | 手动压缩会话以节省上下文          |
 | `/lang`                    | 切换界面语言（中 / 英）           |
 | `/mcp-list` `/mcp-add` `/mcp-delete` | 管理 MCP server         |
