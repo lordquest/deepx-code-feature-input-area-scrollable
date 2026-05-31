@@ -23,6 +23,7 @@
 - **💰 캐시 친화적, 긴 세션도 저렴** —— DeepSeek 프리픽스 캐시를 중심으로 설계(실측 ~99% 적중). 로컬 키워드 라우팅은 매 턴 지연 0·토큰 0으로 시작.
 - **🧭 코드 그래프 내장(codegraph)** —— 심볼 단위 정의 이동 / 호출자 / 인터페이스 구현 / 영향 범위. Go는 `go/types`로 정확히 해석하여 저장소 전체 grep을 대체.
 - **👀 로컬 이미지 OCR(PaddleOCR)** —— 스크린샷의 텍스트를 오프라인으로 읽고, 멀티모달 API 불필요.
+- **📎 `@` 파일/디렉터리 참조** —— 입력창에 `@` 입력 시 로컬 퍼지 경로 선택기가 열림. 선택하면 `@경로`가 메시지에 삽입되고 모델이 필요에 따라 Read(파일)/ List(디렉터리)를 호출. 정확한 컨텍스트 제공, 전부 욱여넣을 필요 없음.
 - **🧠 듀얼 모델 자동 라우팅** —— 가벼운 작업은 flash, 복잡한 작업은 자동으로 pro 승격. `/model flash|pro`로 모델 고정, `/auto` `/plan` `/review`로 모드 전환도 가능.
 - **🗂️ 순차 Todo + 병렬 Plan DAG** —— 다단계 작업은 보이는 체크리스트로 한 단계씩. 독립적인 병렬 작업은 DAG로 분해해 서브 에이전트를 병렬 실행.
 - **💾 무손실 세션 영속화** —— gob가 `tool_calls` / 도구 결과 / `reasoning_content`를 완전 보존해 재시작 후에도 매끄럽게 이어감. 윈도가 차면 자동 계층 압축.
@@ -49,11 +50,15 @@
 
 **1. 설치**
 
-```bash
-# macOS / Linux(끝의 `&& exec $SHELL`이 현재 셸을 새로 시작해 PATH에 deepx를 즉시 반영합니다. rc 소스나 새 터미널을 열 필요가 없습니다)
-curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
+macOS / Linux(끝의 `&& exec $SHELL`이 현재 셸을 새로 시작해 PATH에 deepx를 즉시 반영합니다. rc 소스나 새 터미널을 열 필요가 없습니다):
 
-# Windows (PowerShell)
+```bash
+curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
+```
+
+Windows(PowerShell):
+
+```powershell
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
@@ -193,6 +198,7 @@ CreatePlan
 | :----------------------------------- | :---------------------------------- |
 | `/plan` `/auto` `/review`            | 모드 전환(읽기 전용 / 자동 / 검토)  |
 | `/model`                             | 모델 선택 팝업(auto=작업별 라우팅 / flash / pro 고정); `/model flash` 직접 지정도 가능 |
+| `/reasoning`                         | role(flash/pro)별로 `thinking` / `reasoning_effort` 설정 팝업; 빈 값 = 해당 필드 미전송(MiMo 등 미지원 모델에 영향 없음) |
 | `/compact`                           | 세션 수동 압축                      |
 | `/lang`                              | UI 언어 전환(중 / 영)               |
 | `/mcp-list` `/mcp-add` `/mcp-delete` | MCP 서버 관리                       |

@@ -23,6 +23,7 @@
 - **💰 キャッシュフレンドリーで長時間でも安い** —— DeepSeek のプレフィックスキャッシュを軸に設計（実測 ~99% ヒット）。ローカルキーワードルーティングは毎ターン、遅延ゼロ・トークンゼロで起動。
 - **🧭 コードグラフ内蔵（codegraph）** —— シンボル単位の定義ジャンプ / 呼び出し元 / インターフェース実装 / 影響範囲。Go は `go/types` で正確に解析し、リポジトリ全体の grep を置き換えます。
 - **👀 ローカル画像 OCR（PaddleOCR）** —— スクリーンショットの文字をオフラインで読み取り、マルチモーダル API は不要。
+- **📎 `@` ファイル / ディレクトリ参照** —— 入力欄で `@` を打つとローカルのファジー検索パスピッカーが開く。選択すると `@パス` がメッセージに挿入され、モデルは必要に応じて Read（ファイル）/ List（ディレクトリ）を呼ぶ。コンテキストを精密に渡せて、全部詰め込まなくて済む。
 - **🧠 デュアルモデル自動ルーティング** —— 軽い処理は flash、複雑なタスクは自動で pro に昇格。`/model flash|pro` でモデル固定、`/auto` `/plan` `/review` でモード切替も可能。
 - **🗂️ 逐次 Todo + 並列 Plan DAG** —— 多段階タスクは可視チェックリストで一歩ずつ。独立した並列タスクは DAG に分解してサブエージェントを並列実行。
 - **💾 ロスレスなセッション永続化** —— gob が `tool_calls` / ツール結果 / `reasoning_content` を完全保持し、再起動後もシームレスに継続。ウィンドウが埋まると自動で階層圧縮。
@@ -49,11 +50,15 @@
 
 **1. インストール**
 
-```bash
-# macOS / Linux(末尾の `&& exec $SHELL` は現在のシェルを再起動し、PATH に deepx をすぐ反映させます。rc の source や新しいターミナルを開く必要はありません)
-curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
+macOS / Linux(末尾の `&& exec $SHELL` は現在のシェルを再起動し、PATH に deepx をすぐ反映させます。rc の source や新しいターミナルを開く必要はありません):
 
-# Windows (PowerShell)
+```bash
+curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
+```
+
+Windows(PowerShell):
+
+```powershell
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
@@ -193,6 +198,7 @@ CreatePlan
 | :----------------------------------- | :---------------------------------- |
 | `/plan` `/auto` `/review`            | モード切替（読み取り専用 / 自動 / レビュー） |
 | `/model`                             | モデル選択ポップアップ（auto=タスク振り分け / flash / pro 固定）；`/model flash` で直接指定も可 |
+| `/reasoning`                         | `thinking` / `reasoning_effort` をロール毎（flash/pro）に設定するポップアップ；空 = 該当フィールドを送信しない（MiMo など非対応モデルに無影響） |
 | `/compact`                           | セッションを手動圧縮                |
 | `/lang`                              | UI 言語切替（中 / 英）              |
 | `/mcp-list` `/mcp-add` `/mcp-delete` | MCP サーバー管理                    |
