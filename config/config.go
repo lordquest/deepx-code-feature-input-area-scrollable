@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -40,48 +39,11 @@ type ModelEntry struct {
 	Vision bool `yaml:"-"`
 }
 
-// WebConfig 本地 web dashboard 配置。
-// Enabled 用指针:nil(yaml 里没写)= 采用默认值(开启);写了才按显式值。
-type WebConfig struct {
-	Enabled *bool `yaml:"enabled"` // nil => 默认开启
-	Port    int   `yaml:"port"`    // 0 => 随机端口
-}
-
 // Config 整份 model.yaml 的反序列化目标。
+// web dashboard 配置不在这里 —— 它属于全局应用设置,放在 ~/.deepx/meta.json(见 tui/meta.go)。
 type Config struct {
 	Flash ModelEntry `yaml:"flash"`
 	Pro   ModelEntry `yaml:"pro"`
-	Web   WebConfig  `yaml:"web"`
-}
-
-// WebEnabled 解析 web dashboard 是否开启:env(DEEPX_WEB)优先于 config,config 没写默认开启。
-// DEEPX_WEB 接受 off/0/false/no 关闭,on/1/true/yes 开启。
-func (c *Config) WebEnabled() bool {
-	if v, ok := os.LookupEnv("DEEPX_WEB"); ok {
-		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "off", "0", "false", "no":
-			return false
-		case "on", "1", "true", "yes":
-			return true
-		}
-	}
-	if c != nil && c.Web.Enabled != nil {
-		return *c.Web.Enabled
-	}
-	return true
-}
-
-// WebPort 解析 web dashboard 端口:env(DEEPX_WEB_PORT)优先,其次 config,默认 0(随机)。
-func (c *Config) WebPort() int {
-	if v, ok := os.LookupEnv("DEEPX_WEB_PORT"); ok {
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
-			return n
-		}
-	}
-	if c != nil {
-		return c.Web.Port
-	}
-	return 0
 }
 
 const (

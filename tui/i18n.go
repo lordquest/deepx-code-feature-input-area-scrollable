@@ -153,6 +153,10 @@ var translations = map[string]map[Lang]string{
 		LangZH: "显示/隐藏右侧状态栏(也可按 Ctrl+B)",
 		LangEN: "Show/hide the right status panel (or press Ctrl+B)",
 	},
+	"cmd.web-config.desc": {
+		LangZH: "配置 web 面板的绑定 IP 与端口(立即生效并显示新地址)",
+		LangEN: "Configure web dashboard bind IP & port (applied immediately, shows the new URL)",
+	},
 	"cmd.sandbox.desc": {
 		LangZH: "沙箱模式:off(关闭)/ native(OS 隔离,默认)/ docker(容器隔离)",
 		LangEN: "Sandbox mode: off / native (OS isolation, default) / docker (container isolation)",
@@ -299,6 +303,7 @@ var translations = map[string]map[Lang]string{
 			"- `/new` — 开启全新对话(当前对话已保存,可在 /sessions 找回)\n" +
 			"- `/sessions` — 历史对话列表(↑/↓ 选,Enter 切换)\n" +
 			"- `/status` — 显示/隐藏右侧状态栏(也可按 Ctrl+B)\n" +
+			"- `/web-config` — 配置 web 面板绑定 IP / 端口(局域网访问,立即生效并显示新地址)\n" +
 			"- `/sandbox` — 沙箱模式:`off`(关闭)/ `native`(OS 隔离,默认)/ `docker`(容器隔离)\n" +
 			"- `/working-mode` — 工作模式:`karpathy`(务实)/ `openspec`(规格驱动)/ `superpowers`(全流程严谨),默认 karpathy\n" +
 			"- `/undo` — 撤销上一轮对话(原输入回填输入框)\n" +
@@ -326,6 +331,7 @@ var translations = map[string]map[Lang]string{
 			"- `/new` — Start a brand-new conversation (current one is saved, see /sessions)\n" +
 			"- `/sessions` — Conversation history (↑/↓ select, Enter switch)\n" +
 			"- `/status` — Show/hide the right status panel (or press Ctrl+B)\n" +
+			"- `/web-config` — Configure web dashboard bind IP / port (LAN access, applied immediately, shows the new URL)\n" +
 			"- `/sandbox` — Sandbox mode: `off` / `native` (OS isolation, default) / `docker` (container isolation)\n" +
 			"- `/working-mode` — Working mode: `karpathy` (pragmatic) / `openspec` (spec-driven) / `superpowers` (rigorous), default karpathy\n" +
 			"- `/undo` — Undo the last exchange (restores your input)\n" +
@@ -599,6 +605,42 @@ var translations = map[string]map[Lang]string{
 	"web.ready": {
 		LangZH: "🌐 **本地 Web 面板已就绪** <%s>",
 		LangEN: "🌐 **Local web dashboard ready** <%s>",
+	},
+	"web.ready.lan": {
+		LangZH: "⚠️ 该地址绑定到了局域网:同网络的设备都能访问并**控制本会话(可执行命令)**。链接含访问令牌且为明文 HTTP,请仅在可信网络使用;改回仅本机用 `/web-config` 把 IP 设为 `127.0.0.1`(或留空)。",
+		LangEN: "⚠️ This address is bound to your LAN: any device on the network can access and **control this session (run commands)**. The link carries an access token over plain HTTP — use only on trusted networks. To revert to local-only, run `/web-config` and set the IP to `127.0.0.1` (or leave it empty).",
+	},
+	"web.config.title": {
+		LangZH: "配置 Web 面板",
+		LangEN: "Configure Web Dashboard",
+	},
+	"web.config.hint": {
+		LangZH: "填「IP [端口]」,空格分隔:\n  IP 留空 / 127.0.0.1 = 仅本机;0.0.0.0 = 局域网(手机/平板可访问);也可填某网卡 IP\n  端口可省略(随机)。例:0.0.0.0 8080\n  ⚠️ 面板可控制会话、执行命令,且明文 HTTP —— 对外暴露仅限可信局域网",
+		LangEN: "Enter \"IP [port]\" (space-separated):\n  empty / 127.0.0.1 = local only;  0.0.0.0 = LAN (phone/tablet);  or a specific NIC IP\n  port optional (random). e.g. 0.0.0.0 8080\n  ⚠️ The panel can control the session & run commands over plain HTTP — expose only on trusted LANs",
+	},
+	"web.config.footer": {
+		LangZH: "Enter 保存(重启生效) · Esc 取消",
+		LangEN: "Enter to save (effective on restart) · Esc to cancel",
+	},
+	"web.config.saved": {
+		LangZH: "✓ 已保存 Web 面板配置:IP %s,端口 %s。",
+		LangEN: "✓ Web dashboard config saved: IP %s, port %s.",
+	},
+	"web.config.relisten_failed": {
+		LangZH: "⚠️ 配置已保存,但按新地址重启服务失败:%s。下次启动 deepx 会按新配置生效。",
+		LangEN: "⚠️ Config saved, but restarting the server on the new address failed: %s. It will take effect next time you start deepx.",
+	},
+	"web.config.port.random": {
+		LangZH: "随机",
+		LangEN: "random",
+	},
+	"web.config.err.host": {
+		LangZH: "IP 不合法:请填合法 IP(如 0.0.0.0 / 192.168.1.5)、127.0.0.1 或留空",
+		LangEN: "Invalid IP: enter a valid IP (e.g. 0.0.0.0 / 192.168.1.5), 127.0.0.1, or leave empty",
+	},
+	"web.config.err.port": {
+		LangZH: "端口不合法:请填 0–65535 的整数(留空 = 随机)",
+		LangEN: "Invalid port: enter an integer 0–65535 (empty = random)",
 	},
 	"welcome": {
 		LangZH: "👋 欢迎试用 **deepx-code**,输入 `/help` 查看命令与快捷键。",

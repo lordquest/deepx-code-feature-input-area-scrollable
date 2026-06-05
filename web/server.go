@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
-// Server 是本地 web dashboard 的 HTTP 服务。绑 127.0.0.1,带随机 token 防同机乱访问。
+// Server 是本地 web dashboard 的 HTTP 服务。默认绑 127.0.0.1(仅本机),带随机 token 防未授权访问。
+// 可由调用方指定绑定地址(如 0.0.0.0)对外暴露 —— 见 Listen 的安全说明。
 // 输入回注通过 OnInput/OnReview 回调解耦,由 tui/run.go 注入(内部调 program.Send)。
 type Server struct {
 	hub   *Hub
@@ -39,20 +41,78 @@ type Server struct {
 	OnSetLang        func(lang string) // 界面语言 zh/en
 }
 
-// NewServer 创建 Server,token 随机生成。
+// NewServer 创建 Server,token 先随机兜底(可被 SetToken 覆盖成 session 固定令牌)。
 func NewServer(hub *Hub) *Server {
 	return &Server{hub: hub, token: randomToken()}
 }
 
-// Listen 在 127.0.0.1:port 上监听(port=0 取随机空闲端口),返回带 token 的访问 URL。
-func (s *Server) Listen(port int) (string, error) {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+// SetToken 用一个固定令牌覆盖随机令牌(空串忽略)。须在 Listen 前调用,返回的 URL 才带该令牌。
+// 给 tui/run.go 注入 session 级固定 token 用,保证同一 workspace 的访问 URL 跨重启稳定。
+func (s *Server) SetToken(t string) {
+	if t != "" {
+		s.token = t
+	}
+}
+
+// Listen 在 host:port 上监听(host 空 => 127.0.0.1,仅本机;port=0 => 随机空闲端口),
+// 返回带 token 的访问 URL。
+//
+// 安全:该面板可向 agent 注入输入、批准工具调用、关沙箱 —— 等价于在本机执行代码,且为明文 HTTP、
+// 令牌在 URL 里。host 设成 0.0.0.0 或某网卡 IP 会把它暴露到局域网/公网,仅应在可信网络这么做。
+// 默认 127.0.0.1 不对外。
+func (s *Server) Listen(host string, port int) (string, error) {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		return "", err
 	}
 	s.ln = ln
 	actual := ln.Addr().(*net.TCPAddr).Port
-	return fmt.Sprintf("http://127.0.0.1:%d/?t=%s", actual, s.token), nil
+	return fmt.Sprintf("http://%s:%d/?t=%s", displayHost(host), actual, s.token), nil
+}
+
+// displayHost 把绑定地址转成给用户点击的 URL host:通配地址(0.0.0.0 / ::)解析成本机第一个
+// 非回环 IPv4(便于局域网设备直接访问),其余原样返回。
+func displayHost(bind string) string {
+	if bind == "0.0.0.0" || bind == "::" {
+		return localIP()
+	}
+	return bind
+}
+
+// localIP 返回本机第一个非回环 IPv4;找不到则回退 127.0.0.1。
+// best-effort:多网卡(docker 网桥 / VPN / 多 NIC)时取到的不一定是用户期望的那张,仅用于 URL 回显,
+// 不影响实际监听(已绑在所有接口)。
+func localIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return "127.0.0.1"
+}
+
+// Relisten 关掉当前监听,在新的 host:port 重新监听并起服务,返回新访问 URL。
+// token / hub 不变(已打开的浏览器刷新即可继续用)。供 /web-config 改完配置后热生效,免重启。
+func (s *Server) Relisten(host string, port int) (string, error) {
+	if s.srv != nil {
+		_ = s.srv.Close() // 关旧 http.Server,旧 Serve goroutine 随之返回
+		s.srv = nil
+	} else if s.ln != nil {
+		_ = s.ln.Close()
+	}
+	url, err := s.Listen(host, port)
+	if err != nil {
+		return "", err
+	}
+	go func() { _ = s.Serve() }()
+	return url, nil
 }
 
 // Serve 启动 HTTP 服务(阻塞)。通常放进 goroutine。Close 后返回。

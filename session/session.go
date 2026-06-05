@@ -12,6 +12,7 @@ package session
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/gob"
 	"encoding/hex"
@@ -57,6 +58,7 @@ type metaFile struct {
 	Workspace  string    `json:"workspace"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
+	WebToken   string    `json:"web_token,omitempty"` // 该 session 固定的 web 面板访问令牌,生成一次后不变
 }
 
 // stateFile 是 ~/.deepx/sessions/{sid}/state.json 的结构。只放小而高频写的字段。
@@ -157,6 +159,44 @@ func (m *Manager) touchMeta() {
 	info.LastSeenAt = time.Now()
 	data, _ := json.MarshalIndent(info, "", "  ")
 	_ = os.WriteFile(path, data, 0o644)
+}
+
+// WebToken 返回该 session 固定的 web 面板访问令牌:读 meta.json,有则原样返回,
+// 没有则生成一个并写回(之后永不变),保证同一 workspace 的访问 URL 跨重启稳定。
+// 生成/写入失败时回退一个临时随机令牌(本次进程可用,但不持久)。
+func (m *Manager) WebToken() string {
+	path := filepath.Join(m.rootDir, "meta.json")
+	var info metaFile
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &info)
+	}
+	if info.WebToken != "" {
+		return info.WebToken
+	}
+	info.WebToken = randomToken()
+	// 补齐其它字段(meta.json 可能还不存在),与 touchMeta 保持一致。
+	if info.Workspace == "" {
+		info.Workspace = m.workspace
+	}
+	if info.CreatedAt.IsZero() {
+		info.CreatedAt = time.Now()
+	}
+	if info.LastSeenAt.IsZero() {
+		info.LastSeenAt = time.Now()
+	}
+	if data, err := json.MarshalIndent(info, "", "  "); err == nil {
+		_ = os.WriteFile(path, data, 0o644)
+	}
+	return info.WebToken
+}
+
+// randomToken 生成 16 字节随机 hex 令牌。
+func randomToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "deepx" // crypto/rand 实际不会失败,极端兜底
+	}
+	return hex.EncodeToString(b)
 }
 
 // SaveSummary 保存压缩摘要到裸文件。

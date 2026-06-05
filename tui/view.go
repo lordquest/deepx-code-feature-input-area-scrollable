@@ -363,6 +363,9 @@ func (m model) View() tea.View {
 	if m.showMcpAdd {
 		mainUI = overlayCentered(mainUI, m.mcpAddModalBlock(), m.width, m.height)
 	}
+	if m.showWebConfig {
+		mainUI = overlayCentered(mainUI, m.webConfigModalBlock(), m.width, m.height)
+	}
 	if m.showMcpDelete {
 		mainUI = overlayCentered(mainUI, m.mcpDeleteModalBlock(), m.width, m.height)
 	}
@@ -382,7 +385,7 @@ func (m model) View() tea.View {
 	// modal 打开时不显示真实光标 —— 避免光标卡在 modal 背后。
 	// cursorBlinkOff 由 cursorBlinkTickMsg 600ms 切一次:亮时塞 Cursor,灭时不塞 —
 	// 不依赖终端的 DECSCUSR blink 支持,VS Code 终端等也能闪。
-	if !m.showSetup && !m.showLangModal && !m.showWorkingModeModal && !m.showSandboxModal && !m.showMcpAdd && !m.showMcpDelete && !m.showSkillAdd && !m.showSkillDelete && !m.showSessionList && !m.reviewPending && !m.cursorBlinkOff {
+	if !m.showSetup && !m.showLangModal && !m.showWorkingModeModal && !m.showSandboxModal && !m.showMcpAdd && !m.showWebConfig && !m.showMcpDelete && !m.showSkillAdd && !m.showSkillDelete && !m.showSessionList && !m.reviewPending && !m.cursorBlinkOff {
 		if c := m.input.Cursor(); c != nil {
 			c.Position.X += inputGutterWidth
 			c.Position.Y += bodyH + queuedH + inputTopPad
