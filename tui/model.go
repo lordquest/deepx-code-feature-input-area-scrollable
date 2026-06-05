@@ -10,6 +10,8 @@ import (
 	"deepx/tools"
 	"deepx/web"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -226,6 +228,11 @@ type model struct {
 	mcpDelNames   []string
 	mcpDelIdx     int
 
+	// /web-config 弹单行输入框设置 web 面板的绑定 IP + 端口,写入 meta.json。
+	showWebConfig  bool
+	webConfigInput textinput.Model
+	webConfigErr   string
+
 	// /skill-add 是 search-and-install 多阶段 modal:
 	//   - skillAddInput  :阶段 1 输入(关键词 / URL / 本地路径)
 	//   - skillAddSearching / skillAddInstalling:阶段 2/4 loading 标识
@@ -292,8 +299,9 @@ type model struct {
 	mdRenderers map[int]*glamour.TermRenderer
 
 	// web dashboard:hub 为 nil 表示 web 关闭(所有广播走 broadcast() 守卫跳过)。
-	// webURL 非空时右栏显示 ◆ WEB 地址。
+	// webURL 非空时右栏显示 ◆ WEB 地址。srv 用于 /web-config 改完后热重绑监听。
 	hub    *web.Hub
+	srv    *web.Server
 	webURL string
 
 	// lastCgStatus 是最近一次广播给 web 的代码图谱状态;codegraph 在后台异步变(loading→ready),
@@ -330,7 +338,7 @@ type compressionResultMsg struct {
 	manual          bool // true = /compact 手动触发:失败要给用户反馈,而非像后台触发那样静默
 }
 
-func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub *web.Hub, webURL string) model {
+func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub *web.Hub, srv *web.Server, webURL string) model {
 	vp := viewport.New()
 
 	sp := spinner.New()
@@ -382,6 +390,11 @@ func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub
 	ski.Placeholder = "关键词 或 https://github.com/owner/repo 或 ~/path"
 	ski.CharLimit = 512
 	ski.SetWidth(54)
+
+	wci := textinput.New()
+	wci.Placeholder = "0.0.0.0 8080"
+	wci.CharLimit = 64
+	wci.SetWidth(54)
 
 	// 起手角色 = flash (若 flash 未配置则退化到 pro)
 	role := "flash"
@@ -448,6 +461,7 @@ func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub
 		mcpMgr:          mcpMgr,
 		mcpAddInput:     mi,
 		skillAddInput:   ski,
+		webConfigInput:  wci,
 		chatContent:     newChatLog(maxChatBytes),
 		currentReply:    &strings.Builder{},
 		chatViewport:    vp,
@@ -469,6 +483,7 @@ func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub
 		skillLoader:     loader,
 		skillCatalog:    skillCatalog,
 		hub:             hub,
+		srv:             srv,
 		webURL:          webURL,
 	}
 
@@ -596,6 +611,10 @@ func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub
 	// 切会话、切权限/沙箱/工作模式,状态与终端实时对齐。
 	if webURL != "" {
 		m.appendChat("System", fmt.Sprintf(T("web.ready"), webURL))
+		// 绑定到非回环地址(0.0.0.0 / 局域网 IP)→ 面板对外可达,给一条安全警告。
+		if webURLExposed(webURL) {
+			m.appendChat("System", T("web.ready.lan"))
+		}
 	}
 
 	// 剪贴板工具检测:Linux 上没装 wl-clipboard / xclip / xsel 时 Ctrl+V 文本粘贴会静默
@@ -1130,6 +1149,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mcpAddInput, c = m.mcpAddInput.Update(msg)
 			return m, c
 		}
+		// web-config modal 期间,转发给 webConfigInput(允许粘贴 IP)
+		if m.showWebConfig {
+			var c tea.Cmd
+			m.webConfigInput, c = m.webConfigInput.Update(msg)
+			return m, c
+		}
 		// skill-add modal 期间,转发给 skillAddInput(允许粘贴 URL / 路径)
 		// 仅阶段 1(无结果且非 loading 时)接管 paste;阶段 3 列表态忽略 paste
 		if m.showSkillAdd && !m.skillAddSearching && !m.skillAddInstalling && len(m.skillAddResults) == 0 {
@@ -1344,6 +1369,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var c tea.Cmd
 			m.mcpAddInput, c = m.mcpAddInput.Update(msg)
+			return m, c
+		}
+
+		// /web-config modal:Enter 保存,Esc 取消
+		if m.showWebConfig {
+			switch msg.String() {
+			case "enter":
+				m.submitWebConfig()
+				return m, nil
+			case "esc", "ctrl+c":
+				m.showWebConfig = false
+				m.webConfigErr = ""
+				m.webConfigInput.Blur()
+				m.input.Focus()
+				return m, nil
+			}
+			var c tea.Cmd
+			m.webConfigInput, c = m.webConfigInput.Update(msg)
 			return m, c
 		}
 
@@ -2213,6 +2256,24 @@ func (m *model) syncFileMention() {
 }
 
 // buildUserMessage 构造发给 LLM 的用户消息:解析 @ 文件引用,并附带已落盘图片的路径。
+// webURLExposed 判断 web 面板地址是否对外可达(非回环):用于决定是否打安全警告。
+// localhost / 127.x / ::1 视为仅本机;其余 IP(局域网/公网)视为已暴露。
+func webURLExposed(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" || host == "localhost" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false // 非 IP(自定义域名)无从判断,不打警告,避免误报
+	}
+	return !ip.IsLoopback()
+}
+
 func (m model) buildUserMessage(text string) agent.ChatMessage {
 	if wd, err := os.Getwd(); err == nil {
 		text = resolveFileMentions(text, wd)
@@ -2409,6 +2470,8 @@ func (m *model) handleSlashCommand(input string) tea.Cmd {
 		m.openMcpAddModal()
 	case "/mcp-delete":
 		m.openMcpDeleteModal()
+	case "/web-config":
+		m.openWebConfigModal()
 	case "/reasoning":
 		m.openReasoningModal()
 	case "/lang":

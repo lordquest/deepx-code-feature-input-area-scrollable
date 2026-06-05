@@ -30,7 +30,25 @@ type meta struct {
 	Sandbox string `json:"sandbox,omitempty"`
 	// SandboxDockerImage 记忆 docker 沙箱用的镜像(/sandbox docker <image>)。空 = ubuntu:24.04。
 	SandboxDockerImage string `json:"sandbox_docker_image,omitempty"`
+
+	// 本地 web dashboard 配置(全局)。从前在 model.yaml,现统一收口到这里。
+	WebDisabled bool   `json:"web_disabled,omitempty"` // 默认开启,设 true 才关闭(零值=开,符合 omitempty)
+	WebHost     string `json:"web_host,omitempty"`     // 绑定地址,空=127.0.0.1 仅本机;0.0.0.0=局域网可访问
+	WebPort     int    `json:"web_port,omitempty"`     // 0=随机端口
 }
+
+// webEnabled / webHost / webPort 从 meta.json 解析 web dashboard 配置,带默认值。
+// 仅走配置文件(~/.deepx/meta.json),不再读环境变量。
+func webEnabled() bool { return !metaGet().WebDisabled }
+
+func webHost() string {
+	if h := strings.TrimSpace(metaGet().WebHost); h != "" {
+		return h
+	}
+	return "127.0.0.1" // 默认仅本机;手机/平板访问需显式设 0.0.0.0(见 issue #55)
+}
+
+func webPort() int { return metaGet().WebPort }
 
 // modelCaps 是单个模型探测出的能力位,按维度独立存。
 type modelCaps struct {

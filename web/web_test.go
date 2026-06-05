@@ -55,7 +55,7 @@ func TestServerAuthAndCallbacks(t *testing.T) {
 	srv.OnInput = func(s string) { gotInput <- s }
 	srv.OnReview = func(b bool) { gotReview <- b }
 
-	rawURL, err := srv.Listen(0)
+	rawURL, err := srv.Listen("127.0.0.1", 0)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestHandleFiles(t *testing.T) {
 	srv := NewServer(h)
 	srv.OnListFiles = func() []string { return []string{"tui/model.go", "README.md"} }
 
-	rawURL, err := srv.Listen(0)
+	rawURL, err := srv.Listen("127.0.0.1", 0)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestControlEndpoints(t *testing.T) {
 	srv.OnSetSandbox = func(m string) { gotSandbox <- m }
 	srv.OnSetWorkingMode = func(m string) { gotWM <- m }
 
-	rawURL, err := srv.Listen(0)
+	rawURL, err := srv.Listen("127.0.0.1", 0)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
