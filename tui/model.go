@@ -316,15 +316,15 @@ type webInputMsg struct{ text string }
 type webReviewMsg struct{ approve bool }
 
 // 控制类 web 消息:浏览器点按钮经 program.Send 注入,复用终端同一套切换逻辑。
-type webNewSessionMsg struct{}                // 新建会话
-type webSwitchSessionMsg struct{ id string }  // 切换到某会话
+type webNewSessionMsg struct{}                      // 新建会话
+type webSwitchSessionMsg struct{ id string }        // 切换到某会话
 type webRenameSessionMsg struct{ id, title string } // 重命名会话
-type webDeleteSessionMsg struct{ id string }  // 删除会话
-type webSetModelMsg struct{ role string }     // 路由 auto/flash/pro
-type webSetModeMsg struct{ mode string }      // 权限模式 plan/auto/review
-type webSetSandboxMsg struct{ mode string }   // 沙箱 off/native/docker
-type webSetWorkingModeMsg struct{ mode string } // 工作模式
-type webSetLangMsg struct{ lang string }        // 界面语言 zh/en
+type webDeleteSessionMsg struct{ id string }        // 删除会话
+type webSetModelMsg struct{ role string }           // 路由 auto/flash/pro
+type webSetModeMsg struct{ mode string }            // 权限模式 plan/auto/review
+type webSetSandboxMsg struct{ mode string }         // 沙箱 off/native/docker
+type webSetWorkingModeMsg struct{ mode string }     // 工作模式
+type webSetLangMsg struct{ lang string }            // 界面语言 zh/en
 
 // reviewResultMsg 审核完成后从 goroutine 发回,恢复流监听。
 type reviewResultMsg struct{}
@@ -2128,7 +2128,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case reviewResultMsg:
-		// 审核完成,恢复流监听继续工具循环
+		// 审核完成,恢复流监听继续工具循环。
+		// review 等待期间 API 连接断开时 streamCh 已被置 nil,此时应转入 idle。
+		if m.streamCh == nil {
+			return m, nil
+		}
 		return m, agent.ListenToStream(m.streamCh)
 
 	case skillSearchDoneMsg:
