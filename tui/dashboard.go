@@ -158,3 +158,145 @@ func abbreviatePath(path string, maxWidth int) string {
 func homeDir() string {
 	return os.Getenv("HOME")
 }
+
+func isEmojiLike(r rune) bool {
+	switch {
+	case r == 0x2713 || r == 0x2715 || r == 0x2717 || r == 0x2718:
+		return false
+	case r >= 0x2768 && r <= 0x2775:
+		return false
+	}
+	switch {
+	case r >= 0x1F000 && r <= 0x1FFFF:
+		return true
+	case r >= 0x2600 && r <= 0x27BF:
+		return true
+	case r >= 0x2300 && r <= 0x23FF:
+		return true
+	case r >= 0x2B00 && r <= 0x2BFF:
+		return true
+	}
+	return false
+}
+
+func ensureEmojiSpacing(s string) string {
+	if s == "" {
+		return s
+	}
+	runes := []rune(s)
+	var sb strings.Builder
+	sb.Grow(len(s) + 32)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		sb.WriteRune(r)
+		if !isEmojiLike(r) {
+			continue
+		}
+		if i+1 >= len(runes) {
+			sb.WriteRune(0xFE0F)
+			continue
+		}
+		next := runes[i+1]
+		if next == 0x200D {
+			continue
+		}
+		if next == 0xFE0F || next == 0xFE0E {
+			sb.WriteRune(next)
+			i++
+			if i+1 >= len(runes) {
+				continue
+			}
+			after := runes[i+1]
+			if after != 0x200D && !isWhitespaceLike(after) {
+				sb.WriteRune(' ')
+			}
+			continue
+		}
+		sb.WriteRune(0xFE0F)
+		if !isWhitespaceLike(next) {
+			sb.WriteRune(' ')
+		}
+	}
+	return sb.String()
+}
+
+func ensureEmojiSpacingANSI(s string) string {
+	if s == "" {
+		return s
+	}
+	runes := []rune(s)
+	var sb strings.Builder
+	sb.Grow(len(s) + 32)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		sb.WriteRune(r)
+
+		// 遇 ESC:透传整段 ANSI 序列。覆盖最常见的 CSI(ESC [ ... final_byte)和
+		// OSC(ESC ] ... BEL or ST)。final_byte 范围 0x40-0x7E 对 CSI。
+		if r == 0x1B && i+1 < len(runes) {
+			i++
+			sb.WriteRune(runes[i])
+			switch runes[i] {
+			case '[':
+				for i+1 < len(runes) {
+					i++
+					sb.WriteRune(runes[i])
+					if runes[i] >= 0x40 && runes[i] <= 0x7E {
+						break
+					}
+				}
+			case ']':
+				for i+1 < len(runes) {
+					i++
+					sb.WriteRune(runes[i])
+					if runes[i] == 0x07 { // BEL
+						break
+					}
+					if runes[i] == 0x1B && i+1 < len(runes) && runes[i+1] == '\\' {
+						i++
+						sb.WriteRune('\\')
+						break
+					}
+				}
+			}
+			continue
+		}
+
+		if !isEmojiLike(r) {
+			continue
+		}
+		if i+1 >= len(runes) {
+			sb.WriteRune(0xFE0F)
+			continue
+		}
+		next := runes[i+1]
+		if next == 0x200D {
+			continue
+		}
+		if next == 0xFE0F || next == 0xFE0E {
+			sb.WriteRune(next)
+			i++
+			if i+1 >= len(runes) {
+				continue
+			}
+			after := runes[i+1]
+			if after != 0x200D && !isWhitespaceLike(after) {
+				sb.WriteRune(' ')
+			}
+			continue
+		}
+		sb.WriteRune(0xFE0F)
+		if !isWhitespaceLike(next) {
+			sb.WriteRune(' ')
+		}
+	}
+	return sb.String()
+}
+
+// stripVS16 去掉文本里所有 VS16(U+FE0F)。
+func stripVS16(s string) string {
+	if !strings.ContainsRune(s, '️') {
+		return s
+	}
+	return strings.ReplaceAll(s, "️", "")
+}
