@@ -67,6 +67,20 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
+🇨🇳 Users in mainland China can use the **Gitee mirror** for a faster install (source + binaries both from Gitee; `deepx upgrade` follows Gitee afterwards):
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.sh | SOURCE=gitee bash && exec $SHELL
+```
+
+Windows PowerShell
+
+```powershell
+$env:SOURCE='gitee'; irm https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.ps1 | iex
+```
+
 Installs to `~/.local/bin/deepx`; upgrade any time with `deepx upgrade`.
 
 **2. Open a terminal in your project and launch**

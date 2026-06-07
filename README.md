@@ -37,16 +37,16 @@
 
 ## 📊 对比 Claude Code
 
-|                  | **deepx-code**                       | Claude Code            |
-| :--------------- | :----------------------------------- | :--------------------- |
-| 分发             | Go 单二进制，`curl` 一行装           | Node（npm）            |
-| 开源             | ✅ MIT                               | ❌ 闭源                |
-| 模型             | DeepSeek / 小米 MiMo（OpenAI 兼容，配置时选供应商，flash/pro 自动路由） | Anthropic Claude       |
-| 成本             | 长会话 ~99% 缓存命中，几乎不为重复上下文付费 | 订阅 / 按 Claude API 用量 |
-| 内置代码图谱     | ✅ codegraph（Go 走 `go/types` 精确） | ❌（靠 grep / 搜索）   |
-| 本地 · 离线 OCR  | ✅ PaddleOCR                         | ❌（图片走云端多模态） |
-| MCP              | ✅                                   | ✅                     |
-| Skill 生态       | ✅（兼容 Claude skill 目录）          | ✅                     |
+|                 | **deepx-code**                                                          | Claude Code               |
+| :-------------- | :---------------------------------------------------------------------- | :------------------------ |
+| 分发            | Go 单二进制，`curl` 一行装                                              | Node（npm）               |
+| 开源            | ✅ MIT                                                                  | ❌ 闭源                   |
+| 模型            | DeepSeek / 小米 MiMo（OpenAI 兼容，配置时选供应商，flash/pro 自动路由） | Anthropic Claude          |
+| 成本            | 长会话 ~99% 缓存命中，几乎不为重复上下文付费                            | 订阅 / 按 Claude API 用量 |
+| 内置代码图谱    | ✅ codegraph（Go 走 `go/types` 精确）                                   | ❌（靠 grep / 搜索）      |
+| 本地 · 离线 OCR | ✅ PaddleOCR                                                            | ❌（图片走云端多模态）    |
+| MCP             | ✅                                                                      | ✅                        |
+| Skill 生态      | ✅（兼容 Claude skill 目录）                                            | ✅                        |
 
 > [!NOTE]
 > 这张表不比模型质量本身；deepx-code 的取舍是 **成本、开源、单二进制、内置代码图谱与离线 OCR**。
@@ -55,7 +55,7 @@
 
 **1. 安装**
 
-macOS / Linux(尾部 `&& exec $SHELL` 让当前 shell 立即拿到新 PATH,不用再 source 或重开 terminal):
+macOS / Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.sh | bash && exec $SHELL
@@ -65,6 +65,20 @@ Windows(PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
+```
+
+🇨🇳 国内用户可用 **Gitee 镜像**加速(源码 + 二进制都从 Gitee 拉,之后 `deepx upgrade` 自动走 Gitee):
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.sh | SOURCE=gitee bash && exec $SHELL
+```
+
+Windows PowerShell
+
+```powershell
+$env:SOURCE='gitee'; irm https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.ps1 | iex
 ```
 
 安装到 `~/.local/bin/deepx`，随时用 `deepx upgrade` 升级。
@@ -83,12 +97,12 @@ deepx               # 进入交互式 TUI
 
 **3. 配置**
 
-| 项目        | 怎么做                                                        |
-| :---------- | :----------------------------------------------------------- |
+| 项目         | 怎么做                                                                                                                                                                                                                                                        |
+| :----------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 供应商 & Key | 首次启动弹出向导：**用 ←/→ 选模型供应商（DeepSeek / 小米 MiMo），再填对应 API Key**，持久化到 `~/.deepx/model.yaml`。各供应商已预置 flash/pro 默认模型与 1M 上下文（DeepSeek `deepseek-v4-flash` / `-pro`，MiMo `mimo-v2.5` / `-pro`）。也可 `/config` 重配。 |
-| 手动覆盖    | 可直接编辑 `~/.deepx/model.yaml`，按 role（flash/pro）覆盖 `base_url` / `model` / `api_key` / `max_tokens` / `context_window`；flash 与 pro 也可指向不同供应商。 |
-| Skill       | 放到 `<工作区>/.deepx/skills/`，或复用 `~/.claude/skills/` 等已有目录。 |
-| MCP         | TUI 内 `/mcp-add` 添加，`/mcp-list` 查看。                    |
+| 手动覆盖     | 可直接编辑 `~/.deepx/model.yaml`，按 role（flash/pro）覆盖 `base_url` / `model` / `api_key` / `max_tokens` / `context_window`；flash 与 pro 也可指向不同供应商。                                                                                              |
+| Skill        | 放到 `<工作区>/.deepx/skills/`，或复用 `~/.claude/skills/` 等已有目录。                                                                                                                                                                                       |
+| MCP          | TUI 内 `/mcp-add` 添加，`/mcp-list` 查看。                                                                                                                                                                                                                    |
 
 ## ⚡ 非交互执行（`deepx exec`）
 
@@ -133,12 +147,10 @@ deepx exec "把 README 的功能列表翻译成英文,写到 README.en.md"
 
 > 多对话:默认对话就是本目录(老数据零迁移),`/new` 开新对话、`/sessions` 列表切换。
 
-
-
-| 格式               | 存储内容                                                                | 用途                       |
-| :----------------- | :---------------------------------------------------------------------- | :------------------------- |
+| 格式               | 存储内容                                                                          | 用途                       |
+| :----------------- | :-------------------------------------------------------------------------------- | :------------------------- |
 | `history.gob`      | system + user + assistant（含 `tool_calls`、`tool results`、`reasoning_content`） | **重启恢复，LLM 无缝续接** |
-| `YYYY-MM-DD.jsonl` | user / assistant 纯文本                                                  | Memory 工具搜索            |
+| `YYYY-MM-DD.jsonl` | user / assistant 纯文本                                                           | Memory 工具搜索            |
 
 重启优先加载 gob，失败回退 JSONL。system prompt 因升级 / skill 变化而变动时，gob 恢复时自动原地替换为当前版本（保持缓存前缀一致）。
 
@@ -181,20 +193,20 @@ CreatePlan
 <details>
 <summary><b>操作速查表（12 个 op）</b></summary>
 
-| op             | 用途                 | 必填参数                   | 说明                                            |
-| :------------- | :------------------- | :------------------------- | :---------------------------------------------- |
-| `def`          | 符号定义在哪         | `name`                     | 函数 / 类型 / 方法 / 变量的定义位置             |
-| `refs`         | 谁用到了某符号       | `name`                     | 全部引用（定义 + 调用 + 取值）                  |
-| `symbols`      | 按名模糊搜索符号     | `name`(可选), `kind`(可选) | `kind`: func/method/type/var/const/field        |
-| `outline`      | 一个文件有哪些符号   | `path`                     | 文件大纲                                        |
-| `imports`      | 文件 import 了哪些包 | `path`                     | 依赖概览                                        |
-| `callers`      | 谁调用了某函数       | `name`                     | **改函数时查影响面**，Go 隐式接口也覆盖         |
-| `callees`      | 某函数调用了哪些     | `name`                     | 理解函数内部实现流程                            |
-| `implementers` | 谁实现了某接口       | `name`                     | 对 Go 隐式接口**精确到符号级**，grep 查不出     |
-| `subtypes`     | 谁继承 / 嵌入某类型  | `name`                     | 子类型追踪                                      |
-| `supertypes`   | 某类型派生自什么     | `name`                     | 父类型 / 嵌入接口                               |
-| `impact`       | 改某符号牵连哪些下游 | `name`, `depth`(默认 3)    | 传递闭包，blast radius 分析                     |
-| `reindex`      | 强制重建索引         | —                          | 缓存异常时手动触发                              |
+| op             | 用途                 | 必填参数                   | 说明                                        |
+| :------------- | :------------------- | :------------------------- | :------------------------------------------ |
+| `def`          | 符号定义在哪         | `name`                     | 函数 / 类型 / 方法 / 变量的定义位置         |
+| `refs`         | 谁用到了某符号       | `name`                     | 全部引用（定义 + 调用 + 取值）              |
+| `symbols`      | 按名模糊搜索符号     | `name`(可选), `kind`(可选) | `kind`: func/method/type/var/const/field    |
+| `outline`      | 一个文件有哪些符号   | `path`                     | 文件大纲                                    |
+| `imports`      | 文件 import 了哪些包 | `path`                     | 依赖概览                                    |
+| `callers`      | 谁调用了某函数       | `name`                     | **改函数时查影响面**，Go 隐式接口也覆盖     |
+| `callees`      | 某函数调用了哪些     | `name`                     | 理解函数内部实现流程                        |
+| `implementers` | 谁实现了某接口       | `name`                     | 对 Go 隐式接口**精确到符号级**，grep 查不出 |
+| `subtypes`     | 谁继承 / 嵌入某类型  | `name`                     | 子类型追踪                                  |
+| `supertypes`   | 某类型派生自什么     | `name`                     | 父类型 / 嵌入接口                           |
+| `impact`       | 改某符号牵连哪些下游 | `name`, `depth`(默认 3)    | 传递闭包，blast radius 分析                 |
+| `reindex`      | 强制重建索引         | —                          | 缓存异常时手动触发                          |
 
 </details>
 
@@ -221,21 +233,21 @@ CreatePlan
 
 ## ⌨️ Slash 命令
 
-| 命令                       | 作用                              |
-| :------------------------- | :-------------------------------- |
-| `/plan` `/auto` `/review`  | 切换模式（只读 / 全自动 / 审核）  |
-| `/model`                   | 弹窗选择模型（auto 按任务路由 / flash / pro 定死）；也可 `/model flash` 直接指定 |
-| `/reasoning`               | 弹窗设置 `thinking` / `reasoning_effort`（flash/pro 各自独立；空值=不发该字段，对 MiMo 等不支持的模型零侵入） |
-| `/compact`                 | 手动压缩会话以节省上下文          |
-| `/new` `/sessions`         | 开启全新对话 / 历史对话列表（↑↓ 选，Enter 切换） |
-| `/status`                  | 显示/隐藏右侧状态栏（也可按 `Ctrl+B`） |
-| `/web-config`              | 弹窗设置 web 面板绑定 IP 与端口（填「IP [端口]」，空格分隔；IP 留空/`127.0.0.1`=仅本机，`0.0.0.0`=局域网手机/平板可访问，端口可省=随机）。保存即热生效并显示新地址，无需重启；配置存入会话 `meta.json`，访问令牌按会话固定、跨重启不变。⚠️ 该面板可控制会话、执行命令，且为明文 HTTP，对外暴露仅限可信局域网 |
-| `/sandbox`                 | 沙箱模式：`off`（关闭）/ `native`（默认，OS 隔离：macOS Seatbelt、Linux bubblewrap，写操作限定在 workspace + 进程隔离；无 OS 机制的平台退回软策略黑名单）/ `docker`（容器隔离，`/sandbox docker <镜像>`） |
-| `/working-mode`            | 工作模式（方法论）：`karpathy`（默认，务实工匠）/ `openspec`（规格驱动）/ `superpowers`（全流程严谨）；弹窗选择，也可 `/working-mode kp\|spec\|sp` 直切。三种模式互斥——选中一种会禁用另外两种对应的 skill，避免方法论混搭。切换后存入会话，每轮自动注入提示且不污染历史 |
-| `/lang`                    | 切换界面语言（中 / 英）           |
-| `/mcp-list` `/mcp-add` `/mcp-delete` | 管理 MCP server         |
-| `/skills` `/config` `/mode`| 列出 skill / 重配 key / 查看模式  |
-| `/help`                    | 帮助                              |
+| 命令                                 | 作用                                                                                                                                                                                                                                                                                                         |
+| :----------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/plan` `/auto` `/review`            | 切换模式（只读 / 全自动 / 审核）                                                                                                                                                                                                                                                                             |
+| `/model`                             | 弹窗选择模型（auto 按任务路由 / flash / pro 定死）；也可 `/model flash` 直接指定                                                                                                                                                                                                                             |
+| `/reasoning`                         | 弹窗设置 `thinking` / `reasoning_effort`（flash/pro 各自独立；空值=不发该字段，对 MiMo 等不支持的模型零侵入）                                                                                                                                                                                                |
+| `/compact`                           | 手动压缩会话以节省上下文                                                                                                                                                                                                                                                                                     |
+| `/new` `/sessions`                   | 开启全新对话 / 历史对话列表（↑↓ 选，Enter 切换）                                                                                                                                                                                                                                                             |
+| `/status`                            | 显示/隐藏右侧状态栏（也可按 `Ctrl+B`）                                                                                                                                                                                                                                                                       |
+| `/web-config`                        | 弹窗设置 web 面板绑定 IP 与端口（填「IP [端口]」，空格分隔；IP 留空/`127.0.0.1`=仅本机，`0.0.0.0`=局域网手机/平板可访问，端口可省=随机）。保存即热生效并显示新地址，无需重启；配置存入会话 `meta.json`，访问令牌按会话固定、跨重启不变。⚠️ 该面板可控制会话、执行命令，且为明文 HTTP，对外暴露仅限可信局域网 |
+| `/sandbox`                           | 沙箱模式：`off`（关闭）/ `native`（默认，OS 隔离：macOS Seatbelt、Linux bubblewrap，写操作限定在 workspace + 进程隔离；无 OS 机制的平台退回软策略黑名单）/ `docker`（容器隔离，`/sandbox docker <镜像>`）                                                                                                    |
+| `/working-mode`                      | 工作模式（方法论）：`karpathy`（默认，务实工匠）/ `openspec`（规格驱动）/ `superpowers`（全流程严谨）；弹窗选择，也可 `/working-mode kp\|spec\|sp` 直切。三种模式互斥——选中一种会禁用另外两种对应的 skill，避免方法论混搭。切换后存入会话，每轮自动注入提示且不污染历史                                      |
+| `/lang`                              | 切换界面语言（中 / 英）                                                                                                                                                                                                                                                                                      |
+| `/mcp-list` `/mcp-add` `/mcp-delete` | 管理 MCP server                                                                                                                                                                                                                                                                                              |
+| `/skills` `/config` `/mode`          | 列出 skill / 重配 key / 查看模式                                                                                                                                                                                                                                                                             |
+| `/help`                              | 帮助                                                                                                                                                                                                                                                                                                         |
 
 ## 🛡️ 审核模式
 

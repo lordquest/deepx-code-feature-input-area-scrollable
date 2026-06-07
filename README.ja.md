@@ -67,6 +67,20 @@ Windows(PowerShell):
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
+🇨🇳 中国本土のユーザーは **Gitee ミラー** で高速にインストールできます(ソース・バイナリとも Gitee から取得。以降の `deepx upgrade` も Gitee 経由):
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.sh | SOURCE=gitee bash && exec $SHELL
+```
+
+Windows PowerShell
+
+```powershell
+$env:SOURCE='gitee'; irm https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.ps1 | iex
+```
+
 `~/.local/bin/deepx` にインストールされます。`deepx upgrade` でいつでも更新可能。
 
 **2. ターミナルでプロジェクトに入って起動**

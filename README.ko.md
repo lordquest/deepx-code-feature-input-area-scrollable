@@ -67,6 +67,20 @@ Windows(PowerShell):
 irm https://raw.githubusercontent.com/itmisx/deepx-code/main/scripts/install.ps1 | iex
 ```
 
+🇨🇳 중국 본토 사용자는 **Gitee 미러**로 더 빠르게 설치할 수 있습니다(소스·바이너리 모두 Gitee에서. 이후 `deepx upgrade`도 Gitee 사용):
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.sh | SOURCE=gitee bash && exec $SHELL
+```
+
+Windows PowerShell
+
+```powershell
+$env:SOURCE='gitee'; irm https://gitee.com/itmisx/deepx-code/raw/main/scripts/install.ps1 | iex
+```
+
 `~/.local/bin/deepx`에 설치됩니다. `deepx upgrade`로 언제든 업데이트.
 
 **2. 터미널에서 프로젝트로 이동해 실행**
