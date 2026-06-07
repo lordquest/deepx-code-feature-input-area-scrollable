@@ -28,8 +28,21 @@ export GOTOOLCHAIN="auto"   # 镜像内置 go 若低于 1.25.8,允许经 goproxy
 export GOSUMDB="sum.golang.google.cn" # 校验和库国内镜像,避免 sum.golang.org 被墙
 export CGO_ENABLED=0
 
-TAG="${TAG:-$(git describe --tags --exact-match 2>/dev/null || git describe --tags 2>/dev/null || true)}"
-[ -n "$TAG" ] || { echo "缺少 TAG,且 git describe 失败" >&2; exit 1; }
+# Gitee Go 没有专门的 tag 名内置变量(只有 GITEE_COMMIT 是 SHA),checkout 又常是浅克隆不带 tag。
+# 多路兜底拿 tag:① 显式 TAG  ② 拉回 tag 后按 GITEE_COMMIT/HEAD 反查 exact-match
+# ③ GITEE_BRANCH 形如 vX.Y 时直接用。
+if [ -z "${TAG:-}" ]; then
+  git fetch --tags --force >/dev/null 2>&1 || true
+  TAG="$(git describe --tags --exact-match "${GITEE_COMMIT:-HEAD}" 2>/dev/null || true)"
+fi
+if [ -z "${TAG:-}" ] && printf '%s' "${GITEE_BRANCH:-}" | grep -qE '^v[0-9]'; then
+  TAG="$GITEE_BRANCH"
+fi
+if [ -z "${TAG:-}" ]; then
+  echo "缺少 TAG:当前 commit 不在任何 tag 上,或浅克隆未取到 tag。" >&2
+  echo "手动运行请显式指定,如:  TAG=v0.2.54 bash scripts/gitee-release.sh" >&2
+  exit 1
+fi
 VER="${TAG#v}"
 COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

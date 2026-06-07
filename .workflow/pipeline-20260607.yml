@@ -1,6 +1,16 @@
 version: "1.0"
 name: pipeline-20260607
 displayName: gitee-release
+# Gitee Go 流水线:收到 vX.Y.Z tag 后,在国内 runner 构建 deepx 并发布到 Gitee 发行版
+#（GitHub 境外 runner 上传 Gitee 被掐流,故移到国内跑)。
+#
+# 两个要害(都踩过坑):
+#   1. 同一 stage 的 step 默认【并行】—— release 必须 dependsOn: build_golang,等编完再跑。
+#   2. step 之间是【隔离容器、不共享磁盘】—— build 把 ./dist 作为制品 BUILD_ARTIFACT 上传,
+#      release@gitee 用 upstreamArtifact 拉取后挂到发行版。
+# release@gitee 用流水线内置仓库权限发版,无需任何令牌(故无明文泄漏)。
+#
+# 手动测(非 tag 触发)会因取不到 tag 而退出;请用【tag 触发】验证,或临时把 TAG 写死。
 triggers:
   trigger: auto
   push:
@@ -8,6 +18,7 @@ triggers:
       prefix:
         - v
 variables:
+  # 强制国内代理:镜像默认 GOPROXY=proxy.golang.org 被墙,go.mod 的 go1.25.8 会触发工具链下载。
   GOPROXY: https://goproxy.cn,direct
   GOTOOLCHAIN: auto
   GOSUMDB: sum.golang.google.cn
@@ -23,14 +34,33 @@ stages:
         displayName: Golang 构建
         golangVersion: "1.25"
         commands:
-          - command -v zip >/dev/null 2>&1 || apt-get install -y zip
-          - bash scripts/gitee-release.sh
+          # 一整行(Gitee Go 每条 command 是独立 shell,变量必须同条):
+          # 反查当前 commit 上的 tag → 写进 GITEE_PARAMS 供 release 引用 → DRY_RUN 只编出 ./dist。
+          - 'command -v zip >/dev/null 2>&1 || apt-get install -y zip; git fetch --tags --force >/dev/null 2>&1 || true; TAG="$(git describe --tags --exact-match ${GITEE_COMMIT:-HEAD} 2>/dev/null)"; [ -n "$TAG" ] || { echo "当前 commit 无 tag(请用 tag 触发,或临时写死 TAG)"; exit 1; }; echo "RELEASE_TAG=$TAG" >> GITEE_PARAMS; DRY_RUN=1 TAG="$TAG" bash scripts/gitee-release.sh; ls -la dist/'
+        # 把 ./dist 作为制品上传,供下游 release 跨容器取用
         artifacts:
           - name: BUILD_ARTIFACT
             path:
-              - ./output
+              - ./dist
         caches:
           - /go/pkg/mod
+        notify: []
+        strategy:
+          retry: "0"
+      - step: release@gitee
+        name: release_gitee
+        displayName: Gitee Release
+        # 等 build 编完 + 上传制品成功后再跑(同 stage step 默认并行)
+        dependsOn: build_golang
+        releaseName: "${RELEASE_TAG}"
+        description: "deepx ${RELEASE_TAG}"
+        tagName: "${RELEASE_TAG}"
+        # 拉上游 build 的制品(=整个 ./dist),整包挂到发行版;免列动态文件名
+        upstreamArtifact:
+          - BUILD_ARTIFACT
+        assertFiles: []
+        prerelease: false
+        allowUpdate: true
         notify: []
         strategy:
           retry: "0"
