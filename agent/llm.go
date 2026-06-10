@@ -974,7 +974,9 @@ func streamOnce(
 		StreamOptions: &streamOptions{
 			IncludeUsage: true,
 		},
-		Messages: convo,
+		// 发送前消毒:剔除孤儿 tool 消息 / 剥掉无响应的 tool_calls,避免 API 400(见 issue #94),
+		// 并自愈已被写进历史的坏配对(下次请求即恢复)。正常对话是 no-op。
+		Messages: sanitizeToolPairs(convo),
 		Tools:    toolSpecs,
 		// thinking 和 reasoning_effort 是两个独立顶层字段。各自 omitempty,
 		// 用户设了就发、没设就不发,白名单内的值才透传(防 yaml 笔误)。
@@ -1086,7 +1088,13 @@ func streamOnce(
 	sort.Ints(idxs)
 	toolCalls := make([]ToolCall, 0, len(idxs))
 	for _, idx := range idxs {
-		toolCalls = append(toolCalls, *toolBuf[idx])
+		tc := *toolBuf[idx]
+		if tc.ID == "" {
+			// 供应商流式整段未给 id(部分第三方/自建 base_url 池子)→ 合成稳定 id。
+			// assistant 的 tool_call 与随后的 tool 结果都用它,保证 API 侧能配对(见 issue #94)。
+			tc.ID = fmt.Sprintf("call_%d", idx)
+		}
+		toolCalls = append(toolCalls, tc)
 	}
 	return contentBuilder.String(), reasoningBuilder.String(), toolCalls, finishReason, lastUsage, nil
 }
