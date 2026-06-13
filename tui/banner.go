@@ -11,11 +11,11 @@ import (
 // === deepx-code 文字 banner(右栏顶部)===
 //
 // 5 行布局:
-//   - 顶 ‹──────› 尖括号框
-//   - 3 行 5×3 block art "deepx",每个字母青→蓝渐变;中间行尾接 "-code" 后缀
-//   - 底 ‹──────› 尖括号框
+//   - 顶部一条横线
+//   - 3 行 5×3 block art "deepx",每个字母青→蓝渐变;底行右下角放 "code" 标签
+//   - 底部一条横线
 //
-// 配色青→蓝、装饰用尖括号(代码母题),自有辨识度。
+// 配色青→蓝、上下用横线分割,"code" 落在艺术字右下角,自有辨识度。
 const (
 	bannerArtRows  = 3
 	bannerArtWidth = 3*5 + 4 // 5 字母 × 3 列 + 4 字母间空格 = 19
@@ -42,7 +42,7 @@ var deepxLetterColors = [5]color.Color{
 	lipgloss.Color("27"), // 索蓝
 }
 
-// bannerSuffixColor "-code" 后缀色(浅灰,作字样副件);bannerDecoColor 尖括号框色(亦被
+// bannerSuffixColor "-code" 后缀色(浅灰,作字样副件);bannerDecoColor 分割线色(亦被
 // scrollbar 轨道 / reasoning 角色名复用,留作通用蓝色强调)。
 var (
 	bannerSuffixColor color.Color = lipgloss.Color("250")
@@ -55,13 +55,11 @@ func renderBanner(width int) string {
 		return ""
 	}
 
-	// 尖括号框:‹ + ─×(width-2) + ›
-	deco := lipgloss.NewStyle().Foreground(bannerDecoColor).
-		Render("‹" + strings.Repeat("─", width-2) + "›")
+	// 上下两条纯横线分割。
+	deco := lipgloss.NewStyle().Foreground(bannerDecoColor).Render(strings.Repeat("─", width))
+	label := strings.TrimLeft(strings.TrimSpace(bannerSuffix), "-") // "code"(去掉前导 -)
 
 	pad := strings.Repeat(" ", bannerIndent)
-	suffixFits := bannerIndent+bannerArtWidth+ansi.StringWidth(bannerSuffix) <= width
-
 	rows := make([]string, 0, 5)
 	rows = append(rows, deco)
 	for r := range bannerArtRows {
@@ -73,10 +71,12 @@ func renderBanner(width int) string {
 			}
 			sb.WriteString(lipgloss.NewStyle().Foreground(deepxLetterColors[i]).Render(letter[r]))
 		}
-		if r == 1 && suffixFits { // 中间行尾接 "-code"
-			sb.WriteString(lipgloss.NewStyle().Foreground(bannerSuffixColor).Render(bannerSuffix))
+		rowStr := sb.String()
+		// 底行(基线)紧贴艺术字右侧放 "code" 标签(留 1 空格),靠近 deepx;放得下才放。
+		if r == bannerArtRows-1 && ansi.StringWidth(rowStr)+1+ansi.StringWidth(label) <= width {
+			rowStr += " " + lipgloss.NewStyle().Foreground(bannerSuffixColor).Render(label)
 		}
-		rows = append(rows, padBannerRow(sb.String(), width))
+		rows = append(rows, padBannerRow(rowStr, width))
 	}
 	rows = append(rows, deco)
 	return strings.Join(rows, "\n")
