@@ -110,8 +110,8 @@ func colorizeDiffBlock(s string) string {
 	if !strings.Contains(s, "~~~") && !strings.Contains(s, "```") {
 		return s
 	}
-	addStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render  // green
-	delStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render  // red
+	addStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render // green
+	delStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render // red
 	hintStyle := lipgloss.NewStyle().Foreground(dimColor).Render
 	lines := strings.Split(s, "\n")
 	out := make([]string, 0, len(lines))
@@ -271,6 +271,8 @@ func extractMainArg(name, argsJSON string) string {
 		return pat
 	case "Search":
 		return strVal(args["query"])
+	case "Explore":
+		return strVal(args["task"])
 	case "Fetch":
 		return strVal(args["url"])
 	case "LoadSkill":

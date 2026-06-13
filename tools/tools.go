@@ -496,6 +496,27 @@ var Tools = []Tool{
 		// Roles 留空 = 所有角色可见;子 agent 由其系统提示词禁止使用(同 CreatePlan)。
 	},
 	{
+		Name: "Explore",
+		Description: "派一个只读的「探索」子 agent 去大范围搜索/定位,它在自己的独立上下文里翻查,只把**结论**回给你——大量原文噪音不会进你的上下文。能探两类目标:\n" +
+			"  • 本地代码库:跨多文件 Grep/Glob/Read/CodeGraph 定位,带回相关位置 file:line + 关键发现。\n" +
+			"  • 外部仓库/网页:用 Search + Fetch 抓 GitHub 仓库主页/README/raw 源码/文档,搞清一个外部项目或链接是干嘛的、怎么用、关键实现在哪,带回用途/关键事实 + 来源链接。\n\n" +
+			"**何时用**:回答问题需要**跨多个未知位置、多轮搜索才能定位**时。例如:\"本项目在哪里处理 X / Y 涉及哪些文件 / Z 的调用链\";\"调查某个 GitHub 仓库/网页是干嘛的、它的某功能怎么实现\"。会话已经很长、不想把几十个文件或几页网页塞进当前上下文时,尤其该用它。\n\n" +
+			"**何时不用**:你已经知道确切的文件或符号——直接用 Read / Grep / CodeGraph 更快更省;只抓一个已知 URL 用 Fetch 即可。它每次是独立上下文(不命中你当前会话缓存),**只在真的需要大范围探索时叫它**,别替代单次搜索/抓取。\n\n" +
+			"**用法**:task 写清楚要查什么、要带回什么结论(越具体越省事);可选 thoroughness 控制深度。它只读(不改文件、不执行命令),完成后返回一段精炼结论。",
+		Parameters: ToolParam{
+			Type: "object",
+			Properties: map[string]PropDef{
+				"task":         {Type: "string", Description: "要探索的问题 / 要定位的东西 / 期望带回的结论(尽量具体,例如\"找出鉴权中间件在哪定义、被哪些路由用到,带回 file:line\";或\"调查 github.com/x/y 是什么项目、核心功能怎么实现\")"},
+				"thoroughness": {Type: "string", Enum: []string{"quick", "medium", "thorough"}, Description: "探索深度:quick=基本搜索够用就停 / medium=适度展开(默认) / thorough=多位置多措辞全面排查。越深越慢越费,按需选。"},
+			},
+			Required: []string{"task"},
+		},
+		// Executor 为 nil:在 agent/llm.go 工具循环里被拦截,派只读探索子 agent(runExplore)。
+		// 子 agent 自己的工具集里不含 Explore(防递归套娃),见 agent/explore.go。
+		Executor: nil,
+		ReadOnly: true,
+	},
+	{
 		Name: "AskUser",
 		Description: "向用户发起一道或多道选择题,在终端弹窗里让用户直接勾选(单选/多选),用户选完把结果回传给你——比让用户敲一长串文字省事得多。\n\n" +
 			"**何时用**:需求确认(可一次列多个需求点,每个给几个选项)、在有限且明确的取舍里让用户拍板(技术选型、是否包含某功能、A/B 方案二选一)。\n\n" +

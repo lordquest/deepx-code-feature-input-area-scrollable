@@ -167,3 +167,13 @@ func parseSwitchModelReason(rawArgs string) string {
 	_ = json.Unmarshal([]byte(rawArgs), &p)
 	return p.Reason
 }
+
+// parseExploreArgs 取 Explore 工具参数:task(要探索的问题)+ thoroughness(深度,可空)。
+func parseExploreArgs(rawArgs string) (task, thoroughness string) {
+	var p struct {
+		Task         string `json:"task"`
+		Thoroughness string `json:"thoroughness"`
+	}
+	_ = json.Unmarshal([]byte(rawArgs), &p)
+	return p.Task, p.Thoroughness
+}

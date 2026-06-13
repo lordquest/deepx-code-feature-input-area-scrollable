@@ -884,6 +884,25 @@ func StartStream(
 					} else {
 						result = executeTool(tc, mode, &lastFile)
 					}
+				case "Explore":
+					// 派只读探索子 agent:在独立上下文里搜索本地代码库或外部仓库/网页,只回结论。
+					// 用 flash 跑(便宜,搜索不是推理);独立上下文不污染主会话。详见 agent/explore.go。
+					task, thoroughness := parseExploreArgs(tc.Function.Arguments)
+					if strings.TrimSpace(task) == "" {
+						result = tools.ToolResult{Output: "Explore 需要 task 参数(要探索的问题 / 要带回的结论)。", Success: false}
+					} else {
+						summary, eerr := runExplore(ctx, exploreInput{
+							Entry:        resolveModelEntry("flash", models),
+							Task:         task,
+							Thoroughness: thoroughness,
+							Workspace:    workspace,
+						})
+						if eerr != nil {
+							result = tools.ToolResult{Output: "探索失败:" + eerr.Error(), Success: false}
+						} else {
+							result = tools.ToolResult{Output: summary, Success: true}
+						}
+					}
 				default:
 					result = executeTool(tc, mode, &lastFile)
 				}
