@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -126,14 +127,23 @@ func New(workspace string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("abs path: %w", err)
 	}
-	h := sha1.Sum([]byte(abs))
-	sid := hex.EncodeToString(h[:])[:16]
-
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("user home: %w", err)
 	}
+	sid := sessionIDFor(abs)
 	root := filepath.Join(home, ".deepx", "sessions", sid)
+
+	// 迁移(issue #121):旧版本直接用原始大小写哈希。Windows 路径大小写不敏感,归一为小写后
+	// sid 会变,老用户的历史目录(原始大小写哈希)就对不上、看似"丢了"。若新目录还没有、但本次
+	// 启动大小写对应的旧目录存在,改名过去保住历史。Linux 大小写敏感,rawSid==sid,此段不触发。
+	if rawSid := rawSessionID(abs); rawSid != sid {
+		oldRoot := filepath.Join(home, ".deepx", "sessions", rawSid)
+		if !dirExists(root) && dirExists(oldRoot) {
+			_ = os.Rename(oldRoot, root) // 失败不致命:退化为新建空 session
+		}
+	}
+
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir session: %w", err)
 	}
@@ -143,6 +153,21 @@ func New(workspace string) (*Manager, error) {
 	m.convDir = m.resolveConvDir() // 按 current 指针定位当前对话(见 conversation.go)
 	m.touchMeta()
 	return m, nil
+}
+
+// sessionIDFor 由 workspace 绝对路径算 session id。Windows 路径大小写不敏感,归一为小写再哈希,
+// 避免 `C:\` 与 `c:\` 被算成两个 session(issue #121);Linux 大小写敏感,保持原样,绝不合并不同路径。
+func sessionIDFor(abs string) string {
+	if runtime.GOOS == "windows" {
+		return rawSessionID(strings.ToLower(abs))
+	}
+	return rawSessionID(abs)
+}
+
+// rawSessionID 直接对给定字符串做 sha1 取前 16 hex(旧行为)。迁移时用它按原始大小写定位老目录。
+func rawSessionID(s string) string {
+	h := sha1.Sum([]byte(s))
+	return hex.EncodeToString(h[:])[:16]
 }
 
 // SessionID 返回 16 字符 hex,用作目录名与诊断显示。
