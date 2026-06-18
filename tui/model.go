@@ -317,6 +317,10 @@ type model struct {
 	// streaming 中第一次也会取消流(行为同 Esc),避免要按两个键才能停一个跑得离谱的任务。
 	lastCtrlCAt time.Time
 
+	// Esc 双击中断保护(issue #120):vim/neovim 用户肌肉记忆常误按 Esc。
+	// 第一次按时间戳记到这里;escInterruptWindow 内再按才真正中断 streaming。
+	lastEscAt time.Time
+
 	// 右栏仪表盘字段
 	workspace       string        // os.Getwd() at startup,展示当前工作目录
 	turnStartedAt   time.Time     // 本轮 Enter 时刻,用于实时计算 elapsed
@@ -756,6 +760,10 @@ const cursorBlinkInterval = 600 * time.Millisecond
 // ctrlcExitWindow 两次 Ctrl+C 之间允许的最大时间差。第一次按下若 streaming 中则取消流并
 // 提示再按退出;窗口内第二次 → 真退。
 const ctrlcExitWindow = 1 * time.Second
+
+// escInterruptWindow 两次 Esc 之间允许的最大时间差。streaming 中第一次按只提示、不中断;
+// 窗口内第二次 → 真中断。防止 vim 用户误按一下 Esc 就打断生成(issue #120)。
+const escInterruptWindow = 1 * time.Second
 
 func cursorBlinkTick() tea.Cmd {
 	return tea.Tick(cursorBlinkInterval, func(time.Time) tea.Msg {
@@ -2143,9 +2151,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshViewport()
 				return m, nil
 			}
-			// Esc 中断当前对话。取消 context 真正终止后台 HTTP 请求和工具调用,
-			// 然后 drain channel 防止 goroutine 阻塞(与浏览器"停止"共用 interruptStream)。
+			// Esc 中断当前对话 —— 双击保护(issue #120):vim/neovim 用户常误按 Esc,
+			// 单按一次只提示、不打断;escInterruptWindow 内再按一次才真正中断。
+			// 想单按即停的用户仍可用 Ctrl+C(空输入时单按即取消生成)。
 			if m.streaming && m.streamCh != nil {
+				now := time.Now()
+				if m.lastEscAt.IsZero() || now.Sub(m.lastEscAt) > escInterruptWindow {
+					// 第一次(或上次已过期):只记时间 + 提示,不中断。
+					m.lastEscAt = now
+					m.appendChat("System", T("misc.esc_again_to_interrupt"))
+					m.refreshViewport()
+					return m, nil
+				}
+				// 窗口内第二次:真正中断。
+				m.lastEscAt = time.Time{}
 				m = m.interruptStream()
 				// 打断后把这一轮的用户输入回填到空输入框,方便改一下重发。
 				// pendingUserText 是本轮原文(StreamDoneMsg 成功后才清空,所以打断时仍在);

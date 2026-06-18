@@ -340,7 +340,7 @@ var translations = map[string]map[Lang]string{
 			"- `ctrl+j` — 换行(多行输入)\n" +
 			"- `Ctrl+B` — 显示/隐藏右侧状态栏\n" +
 			"- `Ctrl+V` — 粘贴(含图片)\n" +
-			"- `Esc` — 中断当前对话\n" +
+			"- `Esc` — 中断当前对话(按两次;防 vim 习惯误触。也可 Ctrl+C 单按即停)\n" +
 			"- `Ctrl+C` — 清空输入框;输入为空时按两次退出程序(1 秒内;弹窗内则关弹窗)",
 		LangEN: "\n**Slash commands**\n\n" +
 			"- `/plan` — Switch to read-only mode (Read / List / Grep / Glob / Tree / Search / Fetch / Memory only)\n" +
@@ -374,7 +374,7 @@ var translations = map[string]map[Lang]string{
 			"- `ctrl+j` — Newline (multi-line input)\n" +
 			"- `Ctrl+B` — Show/hide the right status panel\n" +
 			"- `Ctrl+V` — Paste (including images)\n" +
-			"- `Esc` — Interrupt current turn\n" +
+			"- `Esc` — Interrupt current turn (press twice; avoids vim-habit misfires. Or Ctrl+C to stop in one press)\n" +
 			"- `Ctrl+C` — Clear the input; when empty, press twice within 1s to quit (closes modal if open)",
 	},
 
@@ -475,7 +475,7 @@ var translations = map[string]map[Lang]string{
 	// === 输入框上方活动行 / 完成行 ===
 	// footer 状态词单独成键(不复用右栏紧凑的 status.* 英文 token),这样能给中文模式
 	// 提供本地化文案。footer.* 的 key 后缀与 m.status 取值一一对应(thinking/streaming/tool)。
-	"footer.interrupt": {LangZH: "Esc 中断", LangEN: "Esc to interrupt"},
+	"footer.interrupt": {LangZH: "Esc×2 中断", LangEN: "Esc×2 to interrupt"},
 	"footer.thinking":  {LangZH: "思考中", LangEN: "Thinking"},
 	"footer.streaming": {LangZH: "输出中", LangEN: "Responding"},
 	"footer.tool":      {LangZH: "调用工具", LangEN: "Running tool"},
@@ -647,9 +647,13 @@ var translations = map[string]map[Lang]string{
 		LangZH: "再按一次 Ctrl+C 退出 deepx(1 秒内)",
 		LangEN: "Press Ctrl+C again to quit deepx (within 1 second)",
 	},
+	"misc.esc_again_to_interrupt": {
+		LangZH: "再按一次 Esc 中断生成(1 秒内;或按 Ctrl+C 单按即停)",
+		LangEN: "Press Esc again to interrupt (within 1s; or Ctrl+C to stop in one press)",
+	},
 	"misc.input_placeholder": {
-		LangZH: "Type a message…  Enter 发送 · ctrl+j 换行 · ctrl+c 清空 · Esc 中断",
-		LangEN: "Type a message…  Enter send · ctrl+j newline · ctrl+c clear · Esc interrupt",
+		LangZH: "Type a message…  Enter 发送 · ctrl+j 换行 · ctrl+c 清空 · Esc×2 中断",
+		LangEN: "Type a message…  Enter send · ctrl+j newline · ctrl+c clear · Esc×2 interrupt",
 	},
 	"misc.history_suffix": {
 		LangZH: "_(以上为历史对话,共 %d 条)_",
