@@ -102,6 +102,7 @@ deepx                   # 대화형 TUI 진입
 | :------------ | :----------------------------------------------------------- |
 | 공급자 & Key | 첫 실행 마법사에서 **←/→로 공급자(DeepSeek / Xiaomi MiMo)를 선택하고 해당 API Key를 입력**해 `~/.deepx/model.yaml`에 저장. 각 공급자에 flash/pro 기본 모델과 1M 컨텍스트 제공(DeepSeek `deepseek-v4-flash` / `-pro`, MiMo `mimo-v2.5` / `-pro`). `/config`로 재설정. |
 | 수동 재정의   | `~/.deepx/model.yaml`을 직접 편집해 role(flash/pro)별로 `base_url` / `model` / `api_key` / `max_tokens` / `context_window`를 재정의 가능. flash와 pro가 서로 다른 공급자를 가리킬 수도 있음. |
+| 다중 공급자 전환 | `/config` 할 때마다 설정이 공급자 이름(deepseek/mimo/kimi/qwen/custom)으로 `~/.deepx/provider.yaml`에 보관됨. `/provider`로 설정된 공급자 간 원탭 전환(해당 공급자의 flash/pro를 `model.yaml`에 다시 기록), Key 재입력 불필요. |
 | Skill         | `<워크스페이스>/.deepx/skills/`에 두거나 `~/.claude/skills/` 등 재사용. |
 | MCP           | TUI에서 `/mcp-add`로 추가, `/mcp-list`로 목록 확인.          |
 
@@ -233,6 +234,7 @@ CreatePlan
 | :----------------------------------- | :---------------------------------- |
 | `/plan` `/auto` `/review`            | 모드 전환(읽기 전용 / 자동 / 검토)  |
 | `/model`                             | 모델 선택 팝업(auto=작업별 라우팅 / flash / pro 고정); `/model flash` 직접 지정도 가능 |
+| `/provider`                          | 설정된 공급자 간 빠른 전환: 팝업에서 선택(`/provider <이름>` 직접 지정도 가능). `/config` 할 때마다 설정이 공급자 이름으로 `~/.deepx/provider.yaml`에 보관되며, 전환 시 해당 공급자의 flash/pro를 `model.yaml`에 다시 기록 |
 | `/reasoning`                         | role(flash/pro)별로 `thinking` / `reasoning_effort` 설정 팝업; 빈 값 = 해당 필드 미전송(MiMo 등 미지원 모델에 영향 없음) |
 | `/compact`                           | 세션 수동 압축                      |
 | `/new` `/sessions`                   | 새 대화 시작 / 기록 목록(↑↓ 선택, Enter 전환) |

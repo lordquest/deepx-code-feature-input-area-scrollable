@@ -304,6 +304,8 @@ func (m *model) submitSetup() tea.Cmd {
 		m.setupErr = fmt.Sprintf(T("setup.error.save"), err)
 		return nil
 	}
+	// 同步存档到 provider.yaml(按供应商名),供 /provider 快捷切换。存档失败不致命,不挡 /config。
+	_ = config.SaveProvider(provider, cfg)
 	loaded, err := config.Load()
 	if err != nil {
 		m.setupErr = fmt.Sprintf(T("setup.error.reload"), err)
@@ -350,4 +352,72 @@ func (m *model) openSetupModal() {
 	m.setupInput.SetValue("")
 	m.setupInput.Blur()
 	m.input.Blur()
+}
+
+// handleProviderCommand 分发 /provider(弹选择器)与 /provider <名字>(直切)。
+// 供应商名来自 provider.yaml(已 /config 过的才在);没有任何存档则提示先 /config。
+func (m *model) handleProviderCommand(input string) tea.Cmd {
+	names, err := config.ProviderNames()
+	if err != nil {
+		m.appendChat("System", fmt.Sprintf(T("provider.error.load"), err))
+		return nil
+	}
+	if len(names) == 0 {
+		m.appendChat("System", T("provider.empty"))
+		return nil
+	}
+	// /provider <名字> → 直切
+	if fields := strings.Fields(strings.TrimSpace(input)); len(fields) >= 2 {
+		return m.applyProvider(strings.ToLower(fields[1]))
+	}
+	// 裸 /provider → 弹选择器,光标默认停在与当前 model.yaml 匹配的供应商上(匹配不到停 0)。
+	m.providerNames = names
+	m.providerModalIdx = 0
+	for i, n := range names {
+		if cfg, ok, _ := config.LoadProvider(n); ok &&
+			cfg.Flash.Model == m.models.Flash.Model && cfg.Pro.Model == m.models.Pro.Model {
+			m.providerModalIdx = i
+			break
+		}
+	}
+	m.showProviderModal = true
+	return nil
+}
+
+// applyProvider 把 provider.yaml 中指定供应商的 flash/pro 写回 model.yaml 并热切换:
+// 重载、刷新 m.models、重探视觉。返回视觉探测命令。逻辑与 submitSetup 的模型更新段一致。
+func (m *model) applyProvider(name string) tea.Cmd {
+	cfg, ok, err := config.LoadProvider(name)
+	if err != nil {
+		m.appendChat("System", fmt.Sprintf(T("provider.error.load"), err))
+		return nil
+	}
+	if !ok {
+		m.appendChat("System", fmt.Sprintf(T("provider.unknown"), name))
+		return nil
+	}
+	if err := config.Save(cfg); err != nil {
+		m.appendChat("System", fmt.Sprintf(T("provider.error.save"), err))
+		return nil
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		m.appendChat("System", fmt.Sprintf(T("provider.error.save"), err))
+		return nil
+	}
+	m.models = agent.ModelConfig{
+		Flash: agent.ModelEntry(loaded.Flash),
+		Pro:   agent.ModelEntry(loaded.Pro),
+	}
+	m.activeModelRole = "flash"
+	m.activeModelID = m.models.Flash.Model
+	if m.activeModelID == "" {
+		m.activeModelRole = "pro"
+		m.activeModelID = m.models.Pro.Model
+	}
+	// 换了供应商 → 视觉能力可能变,先用缓存垫初值,再返回探测命令重探。
+	m.visionByModel = loadVisionCaps(m.models)
+	m.appendChat("System", fmt.Sprintf(T("provider.switched"), name, m.models.Flash.Model, m.models.Pro.Model))
+	m.refreshViewport()
+	return tea.Batch(visionProbeCmds(m.models)...)
 }

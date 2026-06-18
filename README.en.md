@@ -102,6 +102,7 @@ deepx               # enter the interactive TUI
 | :----------- | :----------------------------------------------------------- |
 | Provider & key | A wizard prompts on first run: **use ←/→ to pick a provider (DeepSeek / Xiaomi MiMo), then enter its API key**, persisted to `~/.deepx/model.yaml`. Each provider ships default flash/pro models and 1M context (DeepSeek `deepseek-v4-flash` / `-pro`, MiMo `mimo-v2.5` / `-pro`). Reconfigure with `/config`. |
 | Manual override | Edit `~/.deepx/model.yaml` directly to override `base_url` / `model` / `api_key` / `max_tokens` / `context_window` per role (flash/pro); flash and pro may even point at different providers. |
+| Multi-provider switch | Each `/config` archives the config by provider name (deepseek/mimo/kimi/qwen/custom) to `~/.deepx/provider.yaml`. Use `/provider` to one-tap switch between configured providers (writes that provider's flash/pro back into `model.yaml`) without re-entering keys. |
 | Skills       | Drop into `<workspace>/.deepx/skills/`, or reuse `~/.claude/skills/` etc. |
 | MCP          | Add via `/mcp-add` inside the TUI; list with `/mcp-list`.    |
 
@@ -233,6 +234,7 @@ A built-in symbol-graph engine lets the model do symbol-level navigation + call-
 | :----------------------------------- | :---------------------------------- |
 | `/plan` `/auto` `/review`            | switch mode (read-only / auto / review) |
 | `/model`                             | popup to pick the model (auto routes by task / flash / pro lock); `/model flash` also works directly |
+| `/provider`                          | quick-switch between configured providers: popup to pick (or `/provider <name>` directly). Each `/config` archives its config by provider name to `~/.deepx/provider.yaml`; switching writes that provider's flash/pro back into `model.yaml` |
 | `/reasoning`                         | popup to set `thinking` / `reasoning_effort` per role (flash/pro); empty = don't send the field (safe for MiMo and other models that don't support it) |
 | `/compact`                           | manually compact the session        |
 | `/new` `/sessions`                   | start a new conversation / browse history (↑↓ select, Enter switch) |

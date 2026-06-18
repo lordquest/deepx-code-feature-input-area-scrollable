@@ -85,6 +85,10 @@ var translations = map[string]map[Lang]string{
 		LangZH: "重新配置 API key",
 		LangEN: "Reconfigure API key",
 	},
+	"cmd.provider.desc": {
+		LangZH: "在已配置的供应商间快捷切换:/provider [名字]",
+		LangEN: "Quick-switch between configured providers: /provider [name]",
+	},
 	"cmd.skills.desc": {
 		LangZH: "列出可用 skill",
 		LangEN: "List available skills",
@@ -310,6 +314,7 @@ var translations = map[string]map[Lang]string{
 			"- `/review` — 切到审核模式(Write/Update/Bash 需人工确认)\n" +
 			"- `/mode` — 显示当前模式\n" +
 			"- `/config` — 重新配置 API key (覆盖 `~/.deepx/model.yaml`)\n" +
+			"- `/provider` — 在已配置的供应商间快捷切换(`/provider [名字]`;配置存于 `~/.deepx/provider.yaml`)\n" +
 			"- `/skills` — 列出可用 skill\n" +
 			"- `/skill-add` `/skill-delete` — 搜索安装 / 删除 skill\n" +
 			"- `/mcp-list` `/mcp-add` `/mcp-delete` — 管理 MCP server\n" +
@@ -343,6 +348,7 @@ var translations = map[string]map[Lang]string{
 			"- `/review` — Switch to review mode (Write/Update/Bash require confirmation)\n" +
 			"- `/mode` — Show current mode\n" +
 			"- `/config` — Reconfigure API key (overwrites `~/.deepx/model.yaml`)\n" +
+			"- `/provider` — Quick-switch between configured providers (`/provider [name]`; saved in `~/.deepx/provider.yaml`)\n" +
 			"- `/skills` — List available skills\n" +
 			"- `/skill-add` `/skill-delete` — Search-install / delete skills\n" +
 			"- `/mcp-list` `/mcp-add` `/mcp-delete` — Manage MCP servers\n" +
@@ -582,6 +588,30 @@ var translations = map[string]map[Lang]string{
 	"lang.footer": {
 		LangZH: "↑/↓ 选择 · Enter 确认 · Esc 取消",
 		LangEN: "↑/↓ select · Enter confirm · Esc cancel",
+	},
+	"provider.title": {
+		LangZH: "切换模型供应商",
+		LangEN: "Switch Model Provider",
+	},
+	"provider.empty": {
+		LangZH: "还没有已保存的供应商配置。先用 /config 配置一个,会自动存档到 provider.yaml。",
+		LangEN: "No saved provider configs yet. Configure one with /config first — it's archived to provider.yaml automatically.",
+	},
+	"provider.unknown": {
+		LangZH: "未找到供应商「%s」。/provider 看可选列表。",
+		LangEN: "Provider \"%s\" not found. Run /provider to see the list.",
+	},
+	"provider.switched": {
+		LangZH: "↩ 已切换到供应商「%s」(flash: %s · pro: %s)",
+		LangEN: "↩ Switched to provider \"%s\" (flash: %s · pro: %s)",
+	},
+	"provider.error.load": {
+		LangZH: "读取 provider.yaml 失败:%v",
+		LangEN: "Failed to read provider.yaml: %v",
+	},
+	"provider.error.save": {
+		LangZH: "切换供应商失败:%v",
+		LangEN: "Failed to switch provider: %v",
 	},
 	"workingmode.title": {
 		LangZH: "选择工作模式",

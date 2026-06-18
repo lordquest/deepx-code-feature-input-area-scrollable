@@ -379,6 +379,9 @@ func (m model) View() tea.View {
 	if m.showSandboxModal {
 		mainUI = overlayCentered(mainUI, m.sandboxModalBlock(), m.width, m.height)
 	}
+	if m.showProviderModal {
+		mainUI = overlayCentered(mainUI, m.providerModalBlock(), m.width, m.height)
+	}
 	if m.showReasoningModal {
 		mainUI = overlayCentered(mainUI, m.reasoningModalBlock(), m.width, m.height)
 	}
@@ -407,7 +410,7 @@ func (m model) View() tea.View {
 	// modal 打开时不显示真实光标 —— 避免光标卡在 modal 背后。
 	// cursorBlinkOff 由 cursorBlinkTickMsg 600ms 切一次:亮时塞 Cursor,灭时不塞 —
 	// 不依赖终端的 DECSCUSR blink 支持,VS Code 终端等也能闪。
-	if !m.showSetup && !m.showLangModal && !m.showWorkingModeModal && !m.showSandboxModal && !m.showMcpAdd && !m.showWebConfig && !m.showMcpDelete && !m.showSkillAdd && !m.showSkillDelete && !m.showSessionList && !m.reviewPending && !m.askPending && !m.cursorBlinkOff {
+	if !m.showSetup && !m.showLangModal && !m.showWorkingModeModal && !m.showSandboxModal && !m.showProviderModal && !m.showMcpAdd && !m.showWebConfig && !m.showMcpDelete && !m.showSkillAdd && !m.showSkillDelete && !m.showSessionList && !m.reviewPending && !m.askPending && !m.cursorBlinkOff {
 		if c := m.input.Cursor(); c != nil {
 			c.Position.X += inputGutterWidth
 			c.Position.Y += bodyH + queuedH + inputTopPad
@@ -635,6 +638,36 @@ func (m model) langModalBlock() string {
 			style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10")).Background(lipgloss.Color("236"))
 		}
 		rows = append(rows, style.Render(marker+opt))
+	}
+
+	footer := lipgloss.NewStyle().Foreground(subtleColor).Render(T("lang.footer"))
+	parts := []string{title, ""}
+	parts = append(parts, rows...)
+	parts = append(parts, "", footer)
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(highlightColor).
+		Padding(1, 2).
+		Width(42).
+		Render(content)
+}
+
+// providerModalBlock 渲染 /provider 选择弹窗,逐行列出 provider.yaml 里已存的供应商名,
+// providerModalIdx 是当前光标。
+func (m model) providerModalBlock() string {
+	title := lipgloss.NewStyle().Bold(true).Foreground(highlightColor).Render(T("provider.title"))
+
+	rows := make([]string, 0, len(m.providerNames))
+	for i, name := range m.providerNames {
+		marker := "  "
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+		if i == m.providerModalIdx {
+			marker = "▸ "
+			style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10")).Background(lipgloss.Color("236"))
+		}
+		rows = append(rows, style.Render(marker+name))
 	}
 
 	footer := lipgloss.NewStyle().Foreground(subtleColor).Render(T("lang.footer"))

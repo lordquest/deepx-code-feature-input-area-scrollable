@@ -250,6 +250,12 @@ type model struct {
 	showSandboxModal bool
 	sandboxModalIdx  int
 
+	// /provider 选择 modal 状态。showProviderModal=true 时路由按键到 modal;
+	// providerNames 是 provider.yaml 里已存的供应商名,providerModalIdx 是当前光标。
+	showProviderModal bool
+	providerModalIdx  int
+	providerNames     []string
+
 	// MCP:mcpMgr 管理外部 MCP server 连接与工具注入(启动时后台连接配置里的 server)。
 	// /mcp-add 弹单行输入框(格式 "名称 命令 [参数...]");/mcp-delete 弹 server 列表选删。
 	mcpMgr        *mcp.Manager
@@ -1207,7 +1213,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		// modal 期间忽略
-		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList {
+		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList || m.showProviderModal {
 			return m, nil
 		}
 		// 滚轮: 转给 viewport,顺便取消选区
@@ -1219,7 +1225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, c
 
 	case tea.MouseClickMsg:
-		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList {
+		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList || m.showProviderModal {
 			return m, nil
 		}
 		if msg.Button != tea.MouseLeft {
@@ -1270,7 +1276,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMotionMsg:
-		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList {
+		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList || m.showProviderModal {
 			return m, nil
 		}
 		if msg.Button != tea.MouseLeft {
@@ -1336,7 +1342,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseReleaseMsg:
-		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList {
+		if m.showSetup || m.showLangModal || m.showWorkingModeModal || m.showModelModal || m.showSandboxModal || m.showReasoningModal || m.showSessionList || m.showProviderModal {
 			return m, nil
 		}
 		if msg.Button != tea.MouseLeft {
@@ -1541,6 +1547,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "esc", "ctrl+c":
 				m.showLangModal = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// /provider 弹窗:↑/↓ 切供应商(provider.yaml 里已存的),Enter 应用(写回 model.yaml + 重载),Esc 取消。
+		if m.showProviderModal {
+			switch msg.String() {
+			case "up", "k":
+				if m.providerModalIdx > 0 {
+					m.providerModalIdx--
+				}
+				return m, nil
+			case "down", "j":
+				if m.providerModalIdx < len(m.providerNames)-1 {
+					m.providerModalIdx++
+				}
+				return m, nil
+			case "enter":
+				m.showProviderModal = false
+				if m.providerModalIdx >= 0 && m.providerModalIdx < len(m.providerNames) {
+					return m, m.applyProvider(m.providerNames[m.providerModalIdx])
+				}
+				return m, nil
+			case "esc", "ctrl+c":
+				m.showProviderModal = false
 				return m, nil
 			}
 			return m, nil
@@ -2975,6 +3007,9 @@ func (m *model) handleSlashCommand(input string) tea.Cmd {
 	}
 	if strings.HasPrefix(cmd, "/workflow") { // /workflows(列表) 或 /workflow <名字> [k=v…](保留原文大小写)
 		return m.handleWorkflowCommand(input)
+	}
+	if strings.HasPrefix(cmd, "/provider") { // 裸 /provider 弹选择器,或 /provider <名字> 直切
+		return m.handleProviderCommand(cmd)
 	}
 	switch cmd {
 	case "/plan":

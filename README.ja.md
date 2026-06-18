@@ -102,6 +102,7 @@ deepx                       # 対話型 TUI に入る
 | :------------ | :----------------------------------------------------------- |
 | プロバイダ & Key | 初回起動時のウィザードで：**←/→ でプロバイダ（DeepSeek / Xiaomi MiMo）を選び、対応する API Key を入力**し `~/.deepx/model.yaml` に保存。各プロバイダに flash/pro の既定モデルと 1M コンテキストを用意（DeepSeek `deepseek-v4-flash` / `-pro`、MiMo `mimo-v2.5` / `-pro`）。`/config` で再設定。 |
 | 手動上書き    | `~/.deepx/model.yaml` を直接編集し、role（flash/pro）ごとに `base_url` / `model` / `api_key` / `max_tokens` / `context_window` を上書き可能。flash と pro で別プロバイダも指定できる。 |
+| 複数プロバイダ切替 | `/config` のたびに設定がプロバイダ名(deepseek/mimo/kimi/qwen/custom)で `~/.deepx/provider.yaml` に保存される。`/provider` で設定済みプロバイダ間をワンタップ切替(そのプロバイダの flash/pro を `model.yaml` に書き戻す)、Key の再入力不要。 |
 | Skill         | `<ワークスペース>/.deepx/skills/` に配置、または `~/.claude/skills/` などを再利用。 |
 | MCP           | TUI 内で `/mcp-add` で追加、`/mcp-list` で一覧。              |
 
@@ -233,6 +234,7 @@ CreatePlan
 | :----------------------------------- | :---------------------------------- |
 | `/plan` `/auto` `/review`            | モード切替（読み取り専用 / 自動 / レビュー） |
 | `/model`                             | モデル選択ポップアップ（auto=タスク振り分け / flash / pro 固定）；`/model flash` で直接指定も可 |
+| `/provider`                          | 設定済みプロバイダ間をすばやく切替：ポップアップで選択（`/provider <名前>` で直接指定も可）。`/config` のたびに設定がプロバイダ名で `~/.deepx/provider.yaml` に保存され、切替時にそのプロバイダの flash/pro を `model.yaml` に書き戻す |
 | `/reasoning`                         | `thinking` / `reasoning_effort` をロール毎（flash/pro）に設定するポップアップ；空 = 該当フィールドを送信しない（MiMo など非対応モデルに無影響） |
 | `/compact`                           | セッションを手動圧縮                |
 | `/new` `/sessions`                   | 新しい会話を開始 / 履歴一覧（↑↓ 選択、Enter で切替） |
