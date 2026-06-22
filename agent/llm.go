@@ -1255,5 +1255,9 @@ func executeTool(tc ToolCall, mode AgentMode, lastFile *string) tools.ToolResult
 			Success: false,
 		}
 	}
-	return t.Executor(args)
+	// 唯一收口:所有真正执行的工具(Read/Bash/Grep/WebFetch/MCP 等,主 agent / 子 agent / Explore 都走这里)
+	// 的返回值在进会话历史前统一限幅,防止单条超大结果撑爆上下文(issue #135)。
+	res := t.Executor(args)
+	res.Output = clampToolOutput(t.Name, res.Output)
+	return res
 }
