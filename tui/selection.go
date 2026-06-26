@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -148,18 +149,32 @@ func (m *model) copySelection() tea.Cmd {
 
 // clipboardWriteCmd 把 text 写进剪贴板,返回 Update 里待执行的 tea.Cmd。
 //
-// 策略:**先用原生剪贴板工具写并读回校验**(writeClipboardText 内部自动挑可用的),
-// 真写进去了就返回 nil、不再发 OSC52;原生不可用或没写进去(无 DISPLAY、无工具、SSH 无 X-forward 等)
-// 才退回 OSC52(tea.SetClipboard)由终端处理。
+// 按"会话在哪台机器"分流,而不是无脑先试原生:
 //
-// 不再用"是不是 SSH"去猜:本机 / SSH+X-forward 下原生 xclip 都能用(读回校验会确认),
-// 之前靠 SSH 变量直接走 OSC52 反而被部分终端(GNOME Terminal 等默认不收 OSC52 写)丢弃。
-// 本地不叠 OSC52,也避免它 base64 被某些终端按 Latin-1 解码成乱码、还覆盖掉原生写的干净结果。
+//   - **SSH 会话**:deepx 跑在远端,原生剪贴板工具(xclip/wl-copy)写的是**远端那台机器**的
+//     剪贴板,对坐在本地的用户毫无用处。更坑的是 writeClipboardText 的"写完读回校验"在远端
+//     会**读回成功**(它只证明远端剪贴板写进去了),于是 return nil、把唯一能转发回本地的 OSC52
+//     给吞了——哪怕用的是支持 OSC52 的终端也跟着失效。所以 SSH 下直接走 OSC52,由本地终端落盘。
+//     ssh -X 同理:xclip 写的是 XQuartz 的 X 剪贴板,跟 macOS 系统剪贴板(⌘V)是两回事。
+//   - **本地会话**:原生优先(pbcopy/xclip,带读回校验),不叠 OSC52——避免它 base64 被某些终端
+//     (如 VS Code 的 xterm.js)按 Latin-1 解码成乱码、还覆盖掉原生写的干净结果。
+//
+// 注:SSH + 不支持 OSC52 的终端(Apple Terminal.app、GNOME Terminal 默认)本就无解,
+// 退回去写远端原生也救不了用户,所以这里不为那种情况保留原生兜底。
 func clipboardWriteCmd(text string) tea.Cmd {
-	if err := writeClipboardText(text); err == nil {
-		return nil // 原生已确认写入
+	if isSSHSession() {
+		return tea.SetClipboard(text) // 远端原生写错机器 → 只能靠 OSC52 转发回本地终端
 	}
-	return tea.SetClipboard(text) // 原生不可用/未生效 → OSC52 兜底
+	if err := writeClipboardText(text); err == nil {
+		return nil // 本地:原生已确认写入
+	}
+	return tea.SetClipboard(text) // 本地原生不可用/未生效 → OSC52 兜底
+}
+
+// isSSHSession 判断当前是否经 ssh 登录:sshd 会给会话注入 SSH_TTY / SSH_CONNECTION。
+// 用 SSH_TTY(有交互式 tty 才设)而非只看 SSH_CLIENT,避免把 scp/无 tty 的场景误判。
+func isSSHSession() bool {
+	return os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != ""
 }
 
 // copyHintClearMsg 到达时清掉"已复制"提示。
