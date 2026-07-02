@@ -71,6 +71,25 @@ func (f OpenAIFunctionSpec) MarshalJSON() ([]byte, error) {
 	}{f.Name, f.Description, params})
 }
 
+// UnmarshalJSON:与 MarshalJSON 对称。Parameters/RawParameters 都是 json:"-",
+// 若无此方法,反序列化(如压缩时从快照还原 specs)会丢掉 parameters,导致
+// 重新 marshal 出 {"type":"","properties":null},API 报 "null is not of type object"。
+// 这里把 parameters 原样收进 RawParameters,重新 marshal 时逐字节还原,保前缀缓存命中。
+func (f *OpenAIFunctionSpec) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Parameters  json.RawMessage `json:"parameters"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	f.Name = aux.Name
+	f.Description = aux.Description
+	f.RawParameters = aux.Parameters
+	return nil
+}
+
 // ToOpenAISpec 转换成 OpenAI tools 协议。
 func (t Tool) ToOpenAISpec() OpenAIToolSpec {
 	return OpenAIToolSpec{
