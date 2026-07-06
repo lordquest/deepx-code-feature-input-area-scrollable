@@ -127,6 +127,19 @@ body {
 .typing span:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
 
+/* 待发送区:流式/压缩中排队的消息,紧贴输入框上方(对齐 TUI,issue #161) */
+.queued {
+  margin: 0 20px 6px; padding: 8px 12px;
+  background: var(--bg2, var(--bg)); border: 1px dashed var(--border); border-radius: 12px;
+  font-size: 13px;
+}
+.queued-head { color: var(--dim); font-size: 11px; margin-bottom: 4px; letter-spacing: .02em; }
+.queued-item {
+  color: var(--fg); padding: 2px 0; line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.queued-item::before { content: "↳ "; color: var(--dim); }
+
 /* 输入区 */
 /* 输入框:整体一张圆角卡片,聚焦时高亮描边 + 柔光 */
 .composer {

@@ -50,17 +50,18 @@ type SessionInfo struct {
 
 // Snapshot 是 web dashboard 的完整状态快照,新连接的浏览器先收到它,再收实时增量。
 type Snapshot struct {
-	Messages      []Message      `json:"messages"`
-	Plan          []PlanNode     `json:"plan"` // 计划(Todo)
-	Step          []PlanNode     `json:"step"` // 步骤(CreatePlan DAG)
-	ToolCalls     []ToolCallView `json:"toolCalls"`
-	Usage         *Usage         `json:"usage"`
-	Streaming     bool           `json:"streaming"`
-	Models        ModelsInfo     `json:"models"`
-	Workspace     string         `json:"workspace"`
-	Lang          string         `json:"lang"` // "zh" | "en",跟 TUI 同步
-	ReviewPending *ReviewInfo    `json:"reviewPending"`
+	Messages      []Message           `json:"messages"`
+	Plan          []PlanNode          `json:"plan"` // 计划(Todo)
+	Step          []PlanNode          `json:"step"` // 步骤(CreatePlan DAG)
+	ToolCalls     []ToolCallView      `json:"toolCalls"`
+	Usage         *Usage              `json:"usage"`
+	Streaming     bool                `json:"streaming"`
+	Models        ModelsInfo          `json:"models"`
+	Workspace     string              `json:"workspace"`
+	Lang          string              `json:"lang"` // "zh" | "en",跟 TUI 同步
+	ReviewPending *ReviewInfo         `json:"reviewPending"`
 	AskQuestions  []agent.AskQuestion `json:"askQuestions"` // 非空 = 有待答选择题
+	Queued        []string            `json:"queued"`       // 流式/压缩中排队待发送的消息原文,展示在输入框上方
 
 	// ShowThinking 是 /thinking 偏好,与 TUI 的 meta.ShowThinking 同步。打开时模型思考
 	// (reasoning_content)会作为 role=="thinking" 的消息内联进 Messages(排在其后的回复之前)。
@@ -176,6 +177,7 @@ func (h *Hub) copySnapshotLocked() Snapshot {
 		s.Usage = &u
 	}
 	s.AskQuestions = append([]agent.AskQuestion(nil), h.snap.AskQuestions...)
+	s.Queued = append([]string(nil), h.snap.Queued...)
 	if h.snap.ReviewPending != nil {
 		r := *h.snap.ReviewPending
 		s.ReviewPending = &r
@@ -192,7 +194,9 @@ func (h *Hub) apply(ev Event) Event {
 		h.snap.Plan = []PlanNode{}
 		h.snap.Step = []PlanNode{}
 		h.snap.ToolCalls = []ToolCallView{}
-		h.snap.Usage = nil
+		// 上下文用量(usage)不在开轮清空:本轮的 promptTokens 要等 API 应答回来才知道,
+		// 这中间保持上一轮的数值,由随后的 usage 事件整份覆盖 —— 否则流式期间面板会先空成 "—"
+		// 再跳出新值(用户可见的"缺失→出现"闪变)。plan/step/tool 是逐轮重来的,照常清空。
 		h.snap.ReviewPending = nil
 		h.snap.AskQuestions = nil
 		h.snap.Streaming = true
@@ -303,15 +307,20 @@ func (h *Hub) apply(ev Event) Event {
 		h.openAssistant = -1
 		h.openThinking = -1
 
+	case "queued":
+		// 排队待发送列表整份覆盖(TUI 侧每次增删都重推);空 = 队列已清空。
+		h.snap.Queued = append([]string(nil), ev.Queued...)
+
 	case "ask_request":
 		h.snap.AskQuestions = ev.Questions
 	case "ask_resolved":
 		h.snap.AskQuestions = nil
 	case "interrupted":
-		// 用户中断:停掉 streaming,清掉任何待答的 review/ask 弹层。
+		// 用户中断:停掉 streaming,清掉任何待答的 review/ask 弹层与排队。
 		h.snap.Streaming = false
 		h.snap.ReviewPending = nil
 		h.snap.AskQuestions = nil
+		h.snap.Queued = nil
 		h.openAssistant = -1
 		h.openThinking = -1
 	case "review_request":
@@ -378,6 +387,7 @@ func (h *Hub) apply(ev Event) Event {
 		h.snap.Usage = nil
 		h.snap.ReviewPending = nil
 		h.snap.Streaming = false
+		h.snap.Queued = nil
 		h.openAssistant = -1
 	}
 	return ev

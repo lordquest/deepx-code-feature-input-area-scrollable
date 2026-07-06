@@ -595,7 +595,7 @@ func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub
 		mode:            agent.AgentMode_Auto,
 		workingMode:     agent.WorkingModeDefault, // 默认 kp;下方从 session 恢复
 		status:          "idle",
-		hideStatusPanel: metaGet().HideStatus,  // 记忆上次的状态栏显隐
+		hideStatusPanel: metaGet().HideStatus,   // 记忆上次的状态栏显隐
 		showThinking:    metaGet().ShowThinking, // 记忆上次的思考显隐
 		spinner:         sp,
 		workspace:       wd,
@@ -791,6 +791,12 @@ func (m model) broadcast(ev web.Event) {
 	}
 }
 
+// broadcastQueued 把当前排队待发送列表整份推给 web,让浏览器在输入框上方显示"待发送"区
+// (对齐 TUI 的 queuedDisplayLines)。queuedInput 每次增删后调用;空列表即清空前端展示。
+func (m model) broadcastQueued() {
+	m.broadcast(web.Event{Kind: "queued", Queued: append([]string(nil), m.queuedInput...)})
+}
+
 // applyMode 切换权限模式(plan/auto/review),落一条系统提示进历史/会话,并广播给 web。
 // 终端 /plan /auto /review 与 web 按钮共用此入口。非法 mode 直接忽略。
 func (m *model) applyMode(mode agent.AgentMode) {
@@ -935,6 +941,7 @@ func (m model) popQueuedInput() (model, tea.Cmd, bool) {
 	}
 	next := m.queuedInput[0]
 	m.queuedInput = m.queuedInput[1:]
+	m.broadcastQueued() // 弹出一条 → 同步缩短前端待发送区(submitUserInput 随后广播 user_message)
 	var cmd tea.Cmd
 	m, cmd = m.submitUserInput(next)
 	return m, cmd, true
@@ -974,6 +981,17 @@ func (m model) submitUserInput(input string) (model, tea.Cmd) {
 	if input == "" && len(m.attachedImagePaths) == 0 {
 		return m, nil
 	}
+	// 流式中 / 压缩前台期间再提交(主要是 web 端在生成时点发送)→ 排队而非丢弃,本轮(或压缩)
+	// 结束后由 popQueuedInput 自动发出,与终端 Enter 完全一致:不开新 stream(杜绝并发两个 stream /
+	// 与压缩截断 history 的竞态)、不丢字。终端 Enter 已在键处理处排队;这里兜 web 等其它入口
+	// (issue #161:web 生成中发送直接消失)。排队原文含斜杠命令时,popQueuedInput 回灌本函数时
+	// streaming 已置 false,会照常走下面的斜杠解析——与终端排队原文再解析的行为一致。
+	if m.streaming || m.compactingFG {
+		m.queuedInput = append(m.queuedInput, input)
+		m.broadcastQueued()
+		m.refreshViewport()
+		return m, nil
+	}
 	// 斜杠命令(带参数,如 /model flash):首 token 精确命中已知命令名 → 转发完整输入。
 	// 必须在 filterSlashCommands 之前 —— 后者遇空格会返回 nil,会把带参命令误当普通消息。
 	if isExactSlashCommand(input) {
@@ -983,17 +1001,6 @@ func (m model) submitUserInput(input string) (model, tea.Cmd) {
 	if matches := filterSlashCommands(input); len(matches) > 0 {
 		cmd := m.handleSlashCommand(matches[0].name)
 		return m, cmd
-	}
-	// 流式中再提交(主要是 web 端可能在生成时点发送)→ 丢弃,避免并发两个 stream。
-	if m.streaming {
-		return m, nil
-	}
-	// 压缩前台期间(手动/自动):排队而非丢弃,压缩完成后由 popQueuedInput 自动发出。
-	// 仍不开新 stream → 同样杜绝与压缩截断 history 的竞态(安全=拒绝式,但不丢字)。
-	// 终端 Enter 已在键处理处排队;这里兜 web 等其它入口。
-	if m.compactingFG {
-		m.queuedInput = append(m.queuedInput, input)
-		return m, nil
 	}
 
 	// 距上次请求 > 1h → 缓存大概率已凉,套用会话中预存的影子 checkpoint,缩小这轮的冷 prefill。
@@ -2176,6 +2183,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "idle"
 				m.chatContent.Append(T("misc.interrupted"))
 				m.queuedInput = nil // 中止本轮 → 丢弃排队消息,不再自动续发
+				m.broadcastQueued() // 同步清空 web 待发送区
 			}
 			m.appendChat("System", T("misc.ctrlc_again_to_quit"))
 			m.refreshViewport()
@@ -2266,6 +2274,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.queuedInput = append(m.queuedInput, q)
+				m.broadcastQueued() // 终端排队也同步到 web 的待发送区
 				m.input.SetValue("")
 				m.refreshViewport()
 				return m, nil
