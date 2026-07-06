@@ -15,6 +15,7 @@ const I18N = {
     send: '发送',
     'placeholder.idle': '输入消息,Enter 发送,Shift+Enter 换行',
     'placeholder.streaming': '正在生成…(可继续输入,发送后排队)',
+    'queued.title': '待发送(本轮结束后自动发出)',
     'review.title': '需要确认',
     'review.approve': '批准',
     'review.reject': '拒绝',
@@ -102,6 +103,7 @@ const I18N = {
     send: 'Send',
     'placeholder.idle': 'Type a message — Enter to send, Shift+Enter for newline',
     'placeholder.streaming': 'Generating… (you can keep typing; it queues after send)',
+    'queued.title': 'Queued (sent automatically when this turn ends)',
     'review.title': 'Confirmation needed',
     'review.approve': 'Approve',
     'review.reject': 'Reject',
@@ -202,6 +204,7 @@ createApp({
       reviewPending: null,
       askPending: null, // ask_request 的 questions 数组,null = 无
       askSel: [],       // [题][选项] 勾选态
+      queued: [],       // 流式/压缩中排队待发送的消息原文(FIFO),展示在输入框上方(issue #161)
       // 活动状态行(对齐 TUI 输入框上方那条):状态 / 实时耗时 / 工具调用
       status: 'idle',   // idle | thinking | streaming | tool | error
       showThinking: false, // /thinking 偏好,由快照 / show_thinking 事件与 TUI 同步
@@ -684,6 +687,7 @@ createApp({
       this.balance = s.balance || '';
       this.showThinking = !!s.showThinking;
       this.sessions = s.sessions || [];
+      this.queued = s.queued || [];
       // 推断流式气泡:最后一条是 assistant / thinking 且还在 streaming 则继续往里追加
       const last = this.messages.length - 1;
       const lastRole = last >= 0 ? this.messages[last].role : '';
@@ -700,7 +704,8 @@ createApp({
           this.plan = [];
           this.step = [];
           this.toolCalls = [];
-          this.usage = null;
+          // usage 不清空:保留上一轮的上下文用量,直到本轮 usage 事件回来整份覆盖,
+          // 避免流式期间「上下文」面板先跳成 "—" 再出现新值(与后端 hub.apply 同构)。
           this.reviewPending = null;
           this.streaming = true;
           this.openIdx = -1;
@@ -800,6 +805,10 @@ createApp({
           this.askPending = null;
           this.askSel = [];
           break;
+        case 'queued':
+          // 流式/压缩中排队待发送列表整份覆盖(空 = 队列已清空),展示在输入框上方(issue #161)
+          this.queued = ev.queued || [];
+          break;
         case 'interrupted':
           this.streaming = false;
           this.openIdx = -1;
@@ -807,6 +816,7 @@ createApp({
           this.reviewPending = null;
           this.askPending = null;
           this.askSel = [];
+          this.queued = [];
           if (this.turnStart) this.turnElapsed = Date.now() - this.turnStart;
           this.status = 'idle';
           break;
@@ -855,6 +865,7 @@ createApp({
           this.reviewPending = null;
           this.streaming = false;
           this.openIdx = -1;
+          this.queued = [];
           // 复位状态行,避免残留上一会话的"完成 · 用时"
           this.status = 'idle';
           this.turnElapsed = 0;

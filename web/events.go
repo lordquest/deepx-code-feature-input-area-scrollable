@@ -51,6 +51,9 @@ type Event struct {
 	// sessions(会话列表)/ session_loaded(切换会话后载入的消息)
 	Sessions []SessionInfo `json:"sessions,omitempty"`
 	Messages []Message     `json:"messages,omitempty"`
+
+	// queued(流式/压缩中排队待发送的消息原文,FIFO);空 = 队列已清空
+	Queued []string `json:"queued,omitempty"`
 }
 
 // PlanNode 是发往前端的 plan DAG 节点。
