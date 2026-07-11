@@ -185,13 +185,16 @@ var Tools = []Tool{
 		ReadOnly: true,
 	},
 	{
-		Name:        "Write",
-		Description: "写入（覆盖）文本文件。父目录会自动创建。",
+		Name: "Write",
+		Description: "写入（覆盖）文本文件。父目录会自动创建。\n\n" +
+			"⚠️ 超大文件分块写:content 会整体计入本次输出,一次写太多可能撞上单次输出上限被截断、" +
+			"导致本次调用失败——且对话越长、可用输出预算越小,越容易触发。稳妥做法:先用 Write 写入" +
+			"开头一部分,再用 Update 逐段追加余下内容,把每次写入拆小。",
 		Parameters: ToolParam{
 			Type: "object",
 			Properties: map[string]PropDef{
 				"path":    {Type: "string", Description: "文件路径"},
-				"content": {Type: "string", Description: "要写入的全部内容"},
+				"content": {Type: "string", Description: "要写入的全部内容;超大时请分块(见工具说明)"},
 			},
 			Required: []string{"path", "content"},
 		},
