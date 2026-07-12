@@ -678,6 +678,39 @@ func StartStream(
 				lastPromptTokens = usage.PromptTokens // 供下一轮判断是否触发循环内 auto-compact
 			}
 
+			// 截断判定双信号(后端可能不给 finish_reason,尤其代理/自建池子):
+			// finish_reason==length 或 生成 token 撞上 max_tokens 上限。
+			// 提前算 —— 下面 tool_call 截断分支也要用它。
+			truncated := finishReason == "length" ||
+				(usage != nil && currentEntry.MaxTokens > 0 && usage.CompletionTokens >= currentEntry.MaxTokens)
+
+			// --- 落历史前拦截两类"看似正常结束、实为异常"的响应(issue #169)---
+			// 分类见 classifyStreamResult;两类都不落这条 assistant 进历史,催模型自愈,
+			// 连续到 maxGateNudges 上限仍无法自愈则回一条可读错误,不再空转。
+			switch classifyStreamResult(assistantContent, reasoning, toolCalls, truncated) {
+			case outcomeTruncatedTool:
+				// tool_call 被输出长度上限截断:最后一个 tool_call 的 arguments 是残缺 JSON,
+				// 执行必然 "unexpected end of JSON input";模型只当普通 parse 错、重试同一个
+				// 超大调用 → 再截断 → 死循环,对话卡死无法恢复(会话 A)。催其改用分块重试。
+				if gateNudges < maxGateNudges {
+					gateNudges++
+					convo = append(convo, ChatMessage{Role: "user", Content: truncatedToolNudge})
+					continue
+				}
+				ch <- StreamErrMsg{errTruncatedToolLoop}
+				return
+			case outcomeEmpty:
+				// 空响应:供应商返回了空(限流 / 不稳定,免费 / 代理端点常见)。别静默当成
+				// "完成"(否则用户只见"无响应 / 卡死",会话 B),催模型重新回复。
+				if gateNudges < maxGateNudges {
+					gateNudges++
+					convo = append(convo, ChatMessage{Role: "user", Content: emptyResponseNudge})
+					continue
+				}
+				ch <- StreamErrMsg{errEmptyResponseLoop}
+				return
+			}
+
 			// 把本轮 assistant 回复写入历史(含 reasoning_content,thinking 模型下轮需要)
 			convo = append(convo, ChatMessage{
 				Role:             "assistant",
@@ -688,11 +721,7 @@ func StartStream(
 
 			if len(toolCalls) == 0 {
 				// 完成度门禁:别把"这轮没工具调用"直接当成"任务完成"。
-				// 截断判定双信号(后端可能不给 finish_reason,尤其代理/自建池子):
-				// finish_reason==length 或 生成 token 撞上 max_tokens 上限。
-				truncated := finishReason == "length" ||
-					(usage != nil && currentEntry.MaxTokens > 0 && usage.CompletionTokens >= currentEntry.MaxTokens)
-				// 被截断、或还有未完成 todo 时,注入一条提示再跑一轮,催它继续。
+				// 纯文本被长度截断、或还有未完成 todo 时,注入一条提示再跑一轮,催它继续。
 				if nudge := completionGate(truncated, lastTodo, &gateNudges); nudge != "" {
 					convo = append(convo, ChatMessage{Role: "user", Content: nudge})
 					continue
@@ -979,6 +1008,51 @@ func StartStream(
 // 这是兼容 MiMo 等不支持这俩字段的模型的关键 —— 任何不主动启用的模型都不会被多余字段炸 400。
 // maxGateNudges 是完成度门禁连续催继续的上限:催够这么多次模型仍不动工具,就放行结束,防死循环/空转。
 const maxGateNudges = 3
+
+// streamOutcome 是对一次 stream 结果的分类,决定主循环该如何处置(issue #169)。
+type streamOutcome int
+
+const (
+	outcomeNormal        streamOutcome = iota // 正常:落历史 / 执行工具
+	outcomeTruncatedTool                      // tool_call 被长度截断:丢弃、催分块重试
+	outcomeEmpty                              // 空响应:催重试
+)
+
+// classifyStreamResult 分类一次 stream 结果。纯函数,便于单测。
+//   - tool_call 被截断(truncated 且有 tool_calls):arguments 残缺,执行必失败并诱发死循环。
+//   - 空响应(无 tool_calls 且 content / reasoning 全空):供应商返回了空。
+//
+// 两者都不能当成正常结束。其余情形(有内容 / 有完整工具调用 / 纯文本被截断)均按正常处理,
+// 纯文本截断由下游 completionGate 负责催继续。
+func classifyStreamResult(assistantContent, reasoning string, toolCalls []ToolCall, truncated bool) streamOutcome {
+	if truncated && len(toolCalls) > 0 {
+		return outcomeTruncatedTool
+	}
+	if len(toolCalls) == 0 && assistantContent == "" && reasoning == "" {
+		return outcomeEmpty
+	}
+	return outcomeNormal
+}
+
+// truncatedToolNudge / emptyResponseNudge:回传给模型的催继续提示(issue #169)。
+// 刻意不带 "Error:" / "错误:" 前缀,给模型可自纠的空间(见工具调用 harness 审计),
+// 而不是把它当成一次硬失败。
+const (
+	truncatedToolNudge = "(你上一次的工具调用因输出长度上限被截断,参数 JSON 不完整、无法执行——" +
+		"通常是单次写入的内容过大。请把它拆成更小的多次写入重试:先用 Write 写入前面一部分" +
+		"(比如上次内容的一半或更少),再用 Update 逐段追加剩下的;不要再整段重复大写入。)"
+	emptyResponseNudge = "(你上一条回复是空的,没有任何文字内容,也没有工具调用。" +
+		"请重新回复:继续完成当前任务,该调用工具就调用工具,不要返回空响应。)"
+)
+
+// errTruncatedToolLoop / errEmptyResponseLoop:连续催到上限仍无法自愈时回给 UI 的可读错误,
+// 避免"静默假装完成"或无限空转(issue #169)。
+var (
+	errTruncatedToolLoop = errors.New("模型连续多次因输出长度上限截断工具调用(通常是单次写入的文件过大)。" +
+		"请让它把大文件分块写入,或用 /provider 换用输出上限更大的模型。")
+	errEmptyResponseLoop = errors.New("模型连续多次返回空响应,可能是供应商限流或不稳定(免费 / 代理端点常见)。" +
+		"请稍后重试,或用 /provider 换用更稳定的模型。")
+)
 
 // completionGate 在"这轮没有工具调用"时决定是否还要继续:
 //   - 返回非空 = 应继续,内容是注入给模型的提示(催它接着干);
