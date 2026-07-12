@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync/atomic"
 )
@@ -103,18 +102,8 @@ func sandboxCmd(command, cwd string) (*exec.Cmd, error) {
 }
 
 // plainShellCmd 不套任何隔离,只按平台选 shell。off 模式 + 各平台 native 的"无 OS 隔离"退化路径共用。
-func plainShellCmd(command, cwd string) *exec.Cmd {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", command)
-	} else {
-		cmd = exec.Command("sh", "-c", command)
-	}
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-	return cmd
-}
+// 按平台分文件实现(shell_windows.go / shell_other.go):Windows 需绕过 Go 的参数转义(见 issue #171),
+// 用到只在 windows 构建下存在的 syscall.SysProcAttr.CmdLine,故不能写在本跨平台文件里。
 
 // confineToWorkspace 把 path 解析为绝对路径,并要求它落在 workspace 内,否则拒绝。
 // 这是 deepx 写文件工具(Write/Edit)能"真正强制"的边界:落盘由 deepx 自己在 Go 里做,
