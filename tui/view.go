@@ -407,8 +407,10 @@ func (m model) View() tea.View {
 	// textarea.Cursor() 给的 X/Y 是相对 textarea 自身的局部坐标;input 起始 Y =
 	// body 占的行数 + 顶部留白行数;X 要加上左侧 gutter 宽(textarea 现在从 gutter 右边起)。
 	// modal 打开时不显示真实光标 —— 避免光标卡在 modal 背后。
-	// cursorBlinkOff 由 cursorBlinkTickMsg 600ms 切一次:亮时塞 Cursor,灭时不塞 —
-	// 不依赖终端的 DECSCUSR blink 支持,VS Code 终端等也能闪。
+	// cursorBlinkOff 只在 appSideCursorBlink 的终端(VS Code)会翻转:亮时塞 Cursor、灭时不塞。
+	// 其余终端恒 false —— 光标常驻,由终端按 DECSCUSR 的 blink 位自己闪。
+	// 别为了闪烁再去切 Cursor 的有无:那会让 bubbletea 每拍重发 DECSCUSR,在 CSI 解析不健全的
+	// 终端上把序列末尾的 q 打印到屏幕上(issue #167,详见 model.go 的 appSideCursorBlink)。
 	if !m.showSetup && !m.showLangModal && !m.showWorkingModeModal && !m.showSandboxModal && !m.showProviderModal && !m.showMcpAdd && !m.showWebConfig && !m.showMcpDelete && !m.showSkillAdd && !m.showSkillDelete && !m.showSessionList && !m.reviewPending && !m.askPending && !m.cursorBlinkOff {
 		if c := m.input.Cursor(); c != nil {
 			c.Position.X += inputGutterWidth

@@ -126,11 +126,11 @@ type model struct {
 	// Esc / 方向键 → 仅取消选择,不动 value。
 	inputAllSelected bool
 
-	// app 侧光标 blink 状态。textarea 现在用真实终端光标(SetVirtualCursor(false)),
-	// 终端光标 blink 走 DECSCUSR 指令但部分终端(如 VS Code 集成终端)不响应,
-	// 所以这里 600ms tick 自己切换 cursor 可见性 —— View 看到 cursorBlinkOff=true 时
-	// 不往 tea.View.Cursor 塞值,bubbletea 就把光标藏起来,下一拍切回来。
-	// 用户按键时由 Update 重置成"亮"并 reset 计时,保持手感跟旧虚拟光标一致。
+	// app 侧光标 blink 状态。textarea 用真实终端光标(SetVirtualCursor(false)),
+	// 而部分终端(VS Code 集成终端)不响应 DECSCUSR 的 blink 位,只好由 app 自己切
+	// cursor 可见性:View 看到 cursorBlinkOff=true 时不往 tea.View.Cursor 塞值。
+	// 但这条路径只在 appSideCursorBlink 为真时启用 —— 其余终端一律恒 false、光标常驻,
+	// 由终端自己闪(原因见 appSideCursorBlink,issue #167)。
 	cursorBlinkOff bool
 
 	// 命令 palette 选中索引。是否打开不存字段 — 由 filterSlashCommands(input value)
@@ -782,6 +782,24 @@ func cursorBlinkTick() tea.Cmd {
 	return tea.Tick(cursorBlinkInterval, func(time.Time) tea.Msg {
 		return cursorBlinkTickMsg{}
 	})
+}
+
+// appSideCursorBlink 决定光标由谁来闪:app 侧(切 tea.View.Cursor 的有无)还是终端自己。
+//
+// 默认交给终端(false)。因为 app 侧闪烁是靠把 tea.View.Cursor 置 nil 再塞回来实现的,
+// 而 bubbletea 只要发现光标样式变了就写一条 DECSCUSR(cursed_renderer.go):
+// nil → 样式 0、有值 → 样式 5,于是每 600ms 往终端写一次 "\x1b[5 q" / "\x1b[0 q"。
+// 这个序列的 q 前面有个空格(中间字节),CSI 解析器不健全的终端会在空格处就结束序列、
+// 把末尾的 q 当普通字符打印出来 —— 又因 bubbletea 是差分渲染不重画旧格子,这些野生的 q
+// 会从输入框光标处一路堆积(issue #167:每秒吐一个 q,拔键盘也不停)。
+// 光标常驻不变样式后,DECSCUSR 全程只在启停各写一次,问题消失。
+//
+// 例外:VS Code 集成终端默认忽略 DECSCUSR 的 blink 位(光标闪不闪由它自己的设置说了算),
+// 不 app 侧闪就是死光标;而它的 xterm.js 能正确吃掉中间字节、不会漏 q,所以只对它开这条路径。
+var appSideCursorBlink = detectAppSideCursorBlink()
+
+func detectAppSideCursorBlink() bool {
+	return os.Getenv("TERM_PROGRAM") == "vscode"
 }
 
 // broadcast 把事件发给 web hub(关闭时 hub==nil,直接跳过)。
@@ -2499,7 +2517,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cursorBlinkTickMsg:
 		// app 侧 cursor blink:每 600ms 切一次可见,View 那边读 cursorBlinkOff
 		// 决定要不要把光标塞进 tea.View.Cursor。继续返回下一拍 tick,自驱动。
-		m.cursorBlinkOff = !m.cursorBlinkOff
+		// 仅 appSideCursorBlink 的终端走这条;其余恒 false,光标常驻交终端自己闪(issue #167)。
+		// 注意这拍 tick 不能停 —— 下面的 codegraph 状态轮询和 workflow 计时重画都搭它的车。
+		if appSideCursorBlink {
+			m.cursorBlinkOff = !m.cursorBlinkOff
+		}
 		// 顺带轮询代码图谱状态:后台异步变化(loading→ready),变了才广播给 web,保持与 TUI 对齐。
 		if m.hub != nil {
 			if cg := tools.CodeGraphStatus(); cg != m.lastCgStatus {
