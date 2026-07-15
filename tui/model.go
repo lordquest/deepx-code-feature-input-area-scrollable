@@ -102,6 +102,13 @@ type model struct {
 	// —— 每条排队消息各成一轮。Esc / Ctrl+C 打断本轮时一并清空(用户在中止,不该再自动续发)。
 	queuedInput []string
 
+	// inputHistory 是已发送消息的历史记录(最新在末尾)，用于 ↑/↓ 翻阅。
+	// inputHistoryIndex = -1 表示不在翻阅中；>=0 表示正在翻阅第几条。
+	// inputDraft 是进入翻阅前输入框中的草稿，退出翻阅时恢复。
+	inputHistory      []string
+	inputHistoryIndex int
+	inputDraft        string
+
 	currentReply *strings.Builder
 
 	// 待发送的图片已落盘文件路径,Ctrl+V 累加,enter 后清空。
@@ -607,6 +614,7 @@ func initialModel(models agent.ModelConfig, needsSetup bool, version string, hub
 		hub:             hub,
 		srv:             srv,
 		webURL:          webURL,
+		inputHistoryIndex: -1,
 	}
 
 	// 恢复本会话的工作模式(空 = 默认 kp)与 /model 锁定(子会话级,issue #43)。
@@ -2142,10 +2150,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "ctrl+c":
 				// 保留原"非流式时退出"语义,不被 selected 改变
-			case "left", "right", "home", "end", "up", "down",
+			case "left", "right", "home", "end",
 				"pgup", "pgdown", "pageup", "pagedown":
 				// 方向 / 翻页 → 仅取消选择,光标移动交给后续 textinput.Update
 				m.inputAllSelected = false
+			case "up", "down":
+				// 全选态下的 ↑↓ 仅取消选择并交给 textarea 处理光标移动，
+				// 不进入历史翻阅（避免取消选择后意外跳历史）。
+				m.inputAllSelected = false
+				return m, nil
 			case "backspace", "delete", "ctrl+w", "ctrl+u":
 				m.input.SetValue("")
 				m.attachedImagePaths = nil
@@ -2268,6 +2281,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var c tea.Cmd
 			m.chatViewport, c = m.chatViewport.Update(msg)
 			return m, c
+		case "up":
+			// ↑ 键：光标在第一行（或输入框为空）时，翻阅上一条历史。
+			// 有弹窗/流式中/输入框非空且光标不在首行时不拦截，交给 textarea 处理光标移动。
+			if m.showSetup || m.showMcpAdd || m.showReasoningModal ||
+				m.showSkillAdd || m.showWebConfig || m.askPending || m.reviewPending {
+				// 弹窗打开时不拦截，让 textarea 处理
+			} else if m.streaming || m.compactingFG {
+				// 流式中不拦截
+			} else if m.input.Value() == "" || m.input.Line() == 0 {
+				m.navigateHistoryUp()
+				return m, nil
+			}
+		case "down":
+			// ↓ 键：正在翻阅历史时，翻到下一条（更新的）消息；翻到底则恢复草稿。
+			if m.showSetup || m.showMcpAdd || m.showReasoningModal ||
+				m.showSkillAdd || m.showWebConfig || m.askPending || m.reviewPending {
+				// 弹窗打开时不拦截
+			} else if m.streaming || m.compactingFG {
+				// 流式中不拦截
+			} else if m.inputHistoryIndex >= 0 {
+				m.navigateHistoryDown()
+				return m, nil
+			}
 		case "ctrl+j":
 			// 在光标处插入换行,实现多行输入。Enter 仍走下方 submit 分支。
 			// 换行键统一为 ctrl+j:它就是 LF(\n),终端原生支持、三平台一致、不被 OS 拦截,
@@ -2311,6 +2347,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.queuedInput = append(m.queuedInput, q)
 				m.broadcastQueued() // 终端排队也同步到 web 的待发送区
+				m.pushInputHistory(q)
 				m.input.SetValue("")
 				m.refreshViewport()
 				return m, nil
@@ -2326,6 +2363,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.input.SetValue("")
+			m.pushInputHistory(input)
 			var cmd tea.Cmd
 			m, cmd = m.submitUserInput(input)
 			return m, cmd
@@ -3960,5 +3998,55 @@ func (m *model) refreshViewport() {
 	m.chatViewport.SetContent(content)
 	if atBottom {
 		m.chatViewport.GotoBottom()
+	}
+}
+
+// pushInputHistory 将一条已发送的消息加入输入历史。
+// 去重：与上一条相同则跳过；上限 100 条防止内存无限增长。
+func (m *model) pushInputHistory(text string) {
+	if len(m.inputHistory) > 0 && m.inputHistory[len(m.inputHistory)-1] == text {
+		return
+	}
+	m.inputHistory = append(m.inputHistory, text)
+	if len(m.inputHistory) > 100 {
+		m.inputHistory = m.inputHistory[len(m.inputHistory)-100:]
+	}
+	m.inputHistoryIndex = -1
+	m.inputDraft = ""
+}
+
+// navigateHistoryUp 翻阅上一条（更旧的）历史消息。
+func (m *model) navigateHistoryUp() {
+	if len(m.inputHistory) == 0 {
+		return
+	}
+	if m.inputHistoryIndex < 0 {
+		// 首次进入翻阅：保存当前草稿
+		m.inputDraft = m.input.Value()
+		m.inputHistoryIndex = len(m.inputHistory) - 1
+	} else if m.inputHistoryIndex > 0 {
+		m.inputHistoryIndex--
+	} else {
+		return // 已是最旧的一条
+	}
+	m.input.SetValue(m.inputHistory[m.inputHistoryIndex])
+	m.input.CursorEnd()
+}
+
+// navigateHistoryDown 翻阅下一条（更新的）历史消息；到底则恢复草稿并退出翻阅。
+func (m *model) navigateHistoryDown() {
+	if m.inputHistoryIndex < 0 {
+		return
+	}
+	if m.inputHistoryIndex < len(m.inputHistory)-1 {
+		m.inputHistoryIndex++
+		m.input.SetValue(m.inputHistory[m.inputHistoryIndex])
+		m.input.CursorEnd()
+	} else {
+		// 已翻到最新（或超出）：恢复草稿，退出翻阅态
+		m.input.SetValue(m.inputDraft)
+		m.input.CursorEnd()
+		m.inputHistoryIndex = -1
+		m.inputDraft = ""
 	}
 }
