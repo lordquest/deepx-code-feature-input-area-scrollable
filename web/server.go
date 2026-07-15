@@ -94,18 +94,64 @@ func displayHost(bind string) string {
 	return bind
 }
 
-// localIP 返回本机第一个非回环 IPv4;找不到则回退 127.0.0.1。
-// best-effort:多网卡(docker 网桥 / VPN / 多 NIC)时取到的不一定是用户期望的那张,仅用于 URL 回显,
-// 不影响实际监听(已绑在所有接口)。
+// localIP 返回本机一个可用于访问 URL 的 IPv4:优先用默认路由出口地址(对多网卡最准——
+// 多张真实网卡时取到的是默认路由那张,正是 LAN 设备访问本机该用的地址),探测失败再退用
+// selectHostIP(枚举网卡挑第一个非链路本地);都没有则 127.0.0.1。
+// 仅用于 URL 回显,不影响实际监听(已绑在 0.0.0.0 所有接口)。
 func localIP() string {
+	if ip, ok := outboundIP(func() (net.Conn, error) {
+		// UDP "连接"不发真实流量,只让内核做路由查找,返回的 LocalAddr 即出口网卡地址。
+		return net.Dial("udp", "8.8.8.8:80")
+	}); ok {
+		return ip
+	}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return "127.0.0.1"
 	}
+	return selectHostIP(addrs)
+}
+
+// outboundIP 通过 dial 到一个外部地址来获取本机默认路由出口的本地 IP。dial 注入便于测试
+// (无需真实网络)。成功且出口为合法非回环 IPv4 时返回 (ip, true);否则 ("", false),交由调用方回退。
+// 出口 IP 即便为链路本地也信任(说明默认路由真在那张卡上),不再额外过滤。
+func outboundIP(dial func() (net.Conn, error)) (string, bool) {
+	conn, err := dial()
+	if err != nil {
+		return "", false
+	}
+	defer conn.Close()
+	udp, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", false
+	}
+	ip := udp.IP
+	if ip == nil || ip.IsLoopback() || ip.To4() == nil {
+		return "", false
+	}
+	return ip.String(), true
+}
+
+// selectHostIP 从一组接口地址里挑一个适合回显给用户的 IPv4:优先非链路本地地址
+// (192.168/10/172.16-31 等),没有则退用链路本地(169.254.x.x),再没有则 127.0.0.1。
+// 抽成纯函数便于注入合成地址做单元测试。
+func selectHostIP(addrs []net.Addr) string {
+	var linkLocal string
 	for _, a := range addrs {
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			return ipnet.IP.String()
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP.IsLoopback() || ipnet.IP.To4() == nil {
+			continue
 		}
+		if ipnet.IP.IsLinkLocalUnicast() { // 覆盖 169.254.0.0/16(及 fe80::/10)
+			if linkLocal == "" {
+				linkLocal = ipnet.IP.String()
+			}
+			continue
+		}
+		return ipnet.IP.String()
+	}
+	if linkLocal != "" {
+		return linkLocal
 	}
 	return "127.0.0.1"
 }

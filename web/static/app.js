@@ -765,6 +765,11 @@ createApp({
         case 'model_switch':
           if (ev.role) this.models.activeRole = ev.role;
           break;
+        case 'models':
+          if (ev.flash) this.models.flash = ev.flash;
+          if (ev.pro) this.models.pro = ev.pro;
+          if (ev.role) this.models.activeRole = ev.role;
+          break;
         case 'plan':
           // createplan → 步骤;todo / 其它 → 计划(对齐 TUI 与后端 hub)
           if (ev.planKind === 'createplan') this.step = ev.plan || [];

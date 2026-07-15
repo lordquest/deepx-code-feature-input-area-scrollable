@@ -139,6 +139,29 @@ func (h *Hub) Broadcast(ev Event) {
 	h.mu.Unlock()
 }
 
+// SetModels 全量更新 Hub 快照里的模型展示信息,并广播给所有已连接的浏览器。
+// /provider 切换供应商后调用,保证 Web 右栏的模型名与 CLI 一致。
+func (h *Hub) SetModels(flash, pro, activeRole string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.snap.Models = ModelsInfo{Flash: flash, Pro: pro, ActiveRole: activeRole}
+	ev := Event{Kind: "models", Flash: flash, Pro: pro}
+	if activeRole != "" {
+		ev.Role = activeRole
+	}
+	for ch := range h.clients {
+		select {
+		case ch <- ev:
+		default:
+			close(ch)
+			delete(h.clients, ch)
+		}
+	}
+	h.mu.Unlock()
+}
+
 // Subscribe 注册一个新客户端,返回其事件 channel、当前快照、以及注销函数。
 // 调用方应先把 snapshot 发给浏览器,再从 channel 持续读增量。
 func (h *Hub) Subscribe() (<-chan Event, Snapshot, func()) {
@@ -267,6 +290,17 @@ func (h *Hub) apply(ev Event) Event {
 		}
 
 	case "model_switch":
+		if ev.Role != "" {
+			h.snap.Models.ActiveRole = ev.Role
+		}
+
+	case "models":
+		if ev.Flash != "" {
+			h.snap.Models.Flash = ev.Flash
+		}
+		if ev.Pro != "" {
+			h.snap.Models.Pro = ev.Pro
+		}
 		if ev.Role != "" {
 			h.snap.Models.ActiveRole = ev.Role
 		}

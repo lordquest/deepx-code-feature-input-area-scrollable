@@ -33,6 +33,10 @@ type Event struct {
 	ModelID string `json:"modelId,omitempty"`
 	Reason  string `json:"reason,omitempty"`
 
+	// models(全量模型名同步:/provider 切供应商后更新 flash/pro 展示名)
+	Flash string `json:"flash,omitempty"`
+	Pro   string `json:"pro,omitempty"`
+
 	// plan(整份)/ plan_status(单节点)
 	Plan     []PlanNode `json:"plan,omitempty"`
 	PlanKind string     `json:"planKind,omitempty"` // "todo"(计划)| "createplan"(步骤)

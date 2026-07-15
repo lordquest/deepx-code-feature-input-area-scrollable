@@ -425,6 +425,11 @@ func (m *model) applyProvider(name string) tea.Cmd {
 	m.visionByModel = loadVisionCaps(m.models)
 	m.appendChat("System", fmt.Sprintf(T("provider.switched"), name, m.models.Flash.Model, m.models.Pro.Model))
 	m.refreshViewport()
+	// /provider 切供应商后同步 Web 面板模型名(Hub 快照的 Models 只在启动时设过一次,
+	// 不广播的话浏览器右栏仍显示旧模型)。
+	if m.hub != nil {
+		m.hub.SetModels(m.models.Flash.Model, m.models.Pro.Model, m.activeModelRole)
+	}
 	// 换供应商 → 余额变了,先清空待重探回灌。
 	m.balance = ""
 	cmds := visionProbeCmds(m.models)
