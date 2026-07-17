@@ -1196,7 +1196,48 @@ func streamCtxErr(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// maxIdleRetries:空闲超时后的最大重试次数。刻意远小于 maxAPIRetries(10)——
+// 每次要先空等满 streamIdleTimeout(120s)才能判定,复用 10 次就是 20 分钟起步,
+// 正好复刻 issue #181 抱怨的那种「转到天荒地老」。2 次 = 最坏约 6 分钟,且全程
+// 状态行有「重试 N/2 · 响应超时」可看,而不是一个什么都不说的 spinner。
+const maxIdleRetries = 2
+
+// streamOnce 在 streamAttempt 之上加一层「空闲超时重试」。
+//
+// 只在「空闲超时 且 这次尝试零输出」时重来:此刻没有任何 token 吐给 UI、assistant 也没进历史,
+// 重试是干净的(与 maxAPIRetries 只重试「进流式之前」是同一条原则)。一旦已经吐过字,
+// 重试会让内容重复出现在对话区,所以直接把错误连同已吐内容返回,由上层收尾。
+//
+// 每次尝试内部各自派生可取消 ctx(见 streamAttempt),所以被看门狗 cancel 掉的 ctx
+// 不会污染下一次重试;父 ctx(用户 ESC)始终原样透传。
 func streamOnce(
+	ctx context.Context,
+	apiKey, baseURL, modelID string,
+	convo []ChatMessage,
+	maxTokens int,
+	toolSpecs []tools.OpenAIToolSpec,
+	reasoningEffort string,
+	thinking string,
+	ch chan<- tea.Msg,
+) (string, string, []ToolCall, string, *UsageInfo, error) {
+	for attempt := 0; ; attempt++ {
+		content, reasoning, toolCalls, finishReason, usage, err := streamAttempt(
+			ctx, apiKey, baseURL, modelID, convo, maxTokens, toolSpecs, reasoningEffort, thinking, ch,
+		)
+		emitted := content != "" || reasoning != "" || len(toolCalls) > 0
+		if !errors.Is(err, errStreamIdle) || emitted || attempt >= maxIdleRetries {
+			return content, reasoning, toolCalls, finishReason, usage, err
+		}
+		// 零输出的空闲超时 → 干净重试。复用同一套退避 + 状态行提示。
+		d := retryBackoff(attempt, "")
+		ch <- RetryNoticeMsg{Attempt: attempt + 1, Max: maxIdleRetries, Delay: d, Reason: "响应超时"}
+		if !sleepCtx(ctx, d) { // 退避期间用户 ESC
+			return content, reasoning, toolCalls, finishReason, usage, ctx.Err()
+		}
+	}
+}
+
+func streamAttempt(
 	ctx context.Context,
 	apiKey, baseURL, modelID string,
 	convo []ChatMessage,

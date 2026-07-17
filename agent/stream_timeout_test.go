@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,20 +63,30 @@ func callStream(ctx context.Context, baseURL string, ch chan tea.Msg) error {
 }
 
 // issue #181 的核心场景:端点回了响应头,然后再也不吐数据。
-// 修复前 scanner.Scan() 会永远阻塞(spinner 转到天荒地老);修复后应在空闲阈值后报 errStreamIdle。
+// 修复前 scanner.Scan() 会永远阻塞(spinner 转到天荒地老);
+// 修复后应在空闲阈值后判定卡死,重试 maxIdleRetries 次仍不行才报 errStreamIdle。
 func TestStreamIdleTimeoutFires(t *testing.T) {
 	withIdleTimeout(t, 200*time.Millisecond)
 
-	url := sseServer(t, hang) // 头已发,之后一个字节都不给
+	var hits int32
+	url := sseServer(t, func(w http.ResponseWriter, flush func(), done <-chan struct{}) {
+		atomic.AddInt32(&hits, 1)
+		<-done // 头已发,之后一个字节都不给
+	})
 
 	ch := make(chan tea.Msg, 64)
-	drain(ch)
+	var notices int32
+	go func() {
+		for msg := range ch {
+			if _, ok := msg.(RetryNoticeMsg); ok {
+				atomic.AddInt32(&notices, 1)
+			}
+		}
+	}()
 
-	start := time.Now()
 	err := callStream(context.Background(), url, ch)
-	elapsed := time.Since(start)
 
-	t.Logf("耗时=%v err=%v", elapsed, err)
+	t.Logf("err=%v  端点被请求 %d 次,发出 %d 条重试提示", err, hits, notices)
 	if err == nil {
 		t.Fatal("❌ 端点不吐数据却没报错 —— 说明仍会无限等待")
 	}
@@ -86,8 +97,82 @@ func TestStreamIdleTimeoutFires(t *testing.T) {
 	if errors.Is(err, context.Canceled) {
 		t.Errorf("❌ 空闲超时被当成用户取消(context.Canceled)→ 上层会静默吞掉,用户仍然看不到任何提示")
 	}
-	if elapsed > 2*time.Second {
-		t.Errorf("❌ 超时没有及时触发,耗时 %v", elapsed)
+	// 首次 + maxIdleRetries 次重试
+	if want := int32(1 + maxIdleRetries); hits != want {
+		t.Errorf("❌ 应尝试 %d 次(首次+%d 次重试),实际 %d 次", want, maxIdleRetries, hits)
+	}
+	if notices != int32(maxIdleRetries) {
+		t.Errorf("❌ 每次重试都该发 RetryNoticeMsg 让状态行有提示,期望 %d 条,实际 %d 条",
+			maxIdleRetries, notices)
+	}
+}
+
+// 空闲超时后重试能自愈:第一次挂住,第二次正常吐 —— 用户不该看到任何错误。
+func TestStreamIdleRetryRecovers(t *testing.T) {
+	withIdleTimeout(t, 200*time.Millisecond)
+
+	var hits int32
+	url := sseServer(t, func(w http.ResponseWriter, flush func(), done <-chan struct{}) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			<-done // 第一次挂住
+			return
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"}}]}\n\n")
+		flush()
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flush()
+	})
+
+	ch := make(chan tea.Msg, 64)
+	drain(ch)
+
+	content, _, _, _, _, err := streamOnce(
+		context.Background(), "k", url, "m",
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		100, nil, "", "", ch,
+	)
+	t.Logf("content=%q err=%v 端点被请求 %d 次", content, err, hits)
+	if err != nil {
+		t.Errorf("❌ 第二次尝试已正常返回,不该报错: %v", err)
+	}
+	if content != "recovered" {
+		t.Errorf("❌ 重试后应拿到完整内容,实际 %q", content)
+	}
+	if hits != 2 {
+		t.Errorf("❌ 应恰好请求 2 次(首次挂住 + 重试成功),实际 %d 次", hits)
+	}
+}
+
+// 已经吐过字之后再卡死,绝不能重试 —— 重试会把已显示在对话区的内容再吐一遍。
+// 此时应带着已吐内容直接报错收尾。
+func TestStreamIdleNoRetryAfterOutput(t *testing.T) {
+	withIdleTimeout(t, 200*time.Millisecond)
+
+	var hits int32
+	url := sseServer(t, func(w http.ResponseWriter, flush func(), done <-chan struct{}) {
+		atomic.AddInt32(&hits, 1)
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"半句话\"}}]}\n\n")
+		flush()
+		<-done // 吐了一半就卡死
+	})
+
+	ch := make(chan tea.Msg, 64)
+	drain(ch)
+
+	content, _, _, _, _, err := streamOnce(
+		context.Background(), "k", url, "m",
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		100, nil, "", "", ch,
+	)
+	t.Logf("content=%q err=%v 端点被请求 %d 次", content, err, hits)
+	if !errors.Is(err, errStreamIdle) {
+		t.Errorf("❌ 应报 errStreamIdle,实际 %v", err)
+	}
+	if hits != 1 {
+		t.Errorf("❌ 已吐字后不该重试(会重复吐字),期望请求 1 次,实际 %d 次", hits)
+	}
+	if content != "半句话" {
+		t.Errorf("❌ 已吐的内容应随错误一起返回给上层,实际 %q", content)
 	}
 }
 
