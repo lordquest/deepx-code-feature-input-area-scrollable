@@ -1459,6 +1459,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if inInput {
 			// 单击进入输入区:清 chat 选区 + 记下拖拽起点(双击全选已移除;全选只走真拖动)。
 			// 后续 MouseMotion 要移动超过阈值才判定为拖拽全选,避免双击抖动误触。
+			// 若此刻已处于"拖拽全选"高亮态:本次按下即取消它(#188 —— 鼠标用户最自然的
+			// "点一下取消"此前没接上,只能靠键盘解除)。清掉后若接着是真拖动,MouseMotion 会
+			// 重新点亮;若只是单击松手,就实现了点一下取消(release 见 inputAllSelected==false)。
+			if m.inputAllSelected {
+				m.inputAllSelected = false
+			}
 			m.inputDragging = true
 			m.inputDragStartX, m.inputDragStartY = msg.X, msg.Y
 			if m.selecting {
