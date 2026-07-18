@@ -15,6 +15,12 @@ func initModel() model {
 	m.height = 30 // 常态终端高度,使 pasteLineCap = min(30-10,2) = 2,与 free-code 一致
 	m.width = 80
 	m.input = textarea.New()
+	// 对齐生产输入框配置(见 initialModel):关行号 / 空 Prompt / 固定行高 / 真实光标,
+	// 否则 m.input.View() 会带默认行号 gutter,鼠标选区坐标就对不上。
+	m.input.ShowLineNumbers = false
+	m.input.Prompt = ""
+	m.input.SetHeight(inputTextRows)
+	m.input.SetVirtualCursor(false)
 	m.input.Focus()
 	m.chatContent = newChatLog(1 << 20)
 	m.chatViewport = viewport.New()

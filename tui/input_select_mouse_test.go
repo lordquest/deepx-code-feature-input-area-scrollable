@@ -1,57 +1,89 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 )
 
-// TestInputClickCancelsSelectAll 钉死 #188 的修复:输入区"拖拽全选"高亮后,
-// 在输入区里单击一下(无拖动)即取消高亮 —— 此前只能靠键盘(方向键/Esc…)解除,
-// 鼠标用户最自然的"点一下取消"没接上。
-func TestInputClickCancelsSelectAll(t *testing.T) {
+// mouseInputAt 返回输入框内一个屏幕坐标:X = gutter + col,Y = textarea 文本首行。
+func (m model) mouseInputAt(col int) (x, y int) {
+	return inputGutterWidth + col, m.inputTextTopY()
+}
+
+// TestInputDragSelectsFragment 验证 #188 的部分选择:输入区拖拽选中一段 → 复制该片段;
+// 拖拽松手后保留高亮;随后单击一下(无拖动)→ 取消高亮(点一下取消)。
+func TestInputDragSelectsFragment(t *testing.T) {
 	m := initModel()
-	// 建立视口/输入框尺寸,使鼠标命中判定与 refreshViewport 正常工作。
 	wm, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	m = wm.(model)
-	m.input.SetValue("hello world example text") // 非空才会触发全选
+	m.input.SetValue("hello world")
 
-	leftW, vpH := m.layout()
-	if vpH >= m.height {
-		t.Fatalf("前置失败:vpH(%d) 不小于 height(%d),无输入区可点", vpH, m.height)
-	}
-	px, py := 2, vpH // 输入区内一点:Y ∈ [vpH, height),X ∈ [0, leftW)
-	if px >= leftW {
-		t.Fatalf("前置失败:px(%d) 不在内容列 [0,%d)", px, leftW)
-	}
-	dragX := px + inputDragThreshold + 1 // 横移超阈值 → 判定为真拖动
-	if dragX >= leftW {
-		t.Fatalf("前置失败:dragX(%d) 超出内容列 [0,%d)", dragX, leftW)
-	}
+	ax, ay := m.mouseInputAt(0) // 锚点:第 0 列
+	ex, ey := m.mouseInputAt(5) // 拖到第 5 列("hello" 之后)
 
-	// 1) 按下 → 真拖动 → 松手:应进入全选态,且松手保留高亮(拖拽复制全文)。
-	mm, _ := m.Update(tea.MouseClickMsg{X: px, Y: py, Button: tea.MouseLeft})
+	// 按下 → 拖动到不同列 → 应进入选区态
+	mm, _ := m.Update(tea.MouseClickMsg{X: ax, Y: ay, Button: tea.MouseLeft})
 	m = mm.(model)
-	mm, _ = m.Update(tea.MouseMotionMsg{X: dragX, Y: py, Button: tea.MouseLeft})
-	m = mm.(model)
-	if !m.inputAllSelected {
-		t.Fatalf("真拖动后应进入全选态")
+	if m.inputSelecting {
+		t.Fatalf("刚按下(未拖动)不应有选区")
 	}
-	mm, _ = m.Update(tea.MouseReleaseMsg{X: dragX, Y: py, Button: tea.MouseLeft})
+	mm, _ = m.Update(tea.MouseMotionMsg{X: ex, Y: ey, Button: tea.MouseLeft})
 	m = mm.(model)
-	if !m.inputAllSelected {
-		t.Fatalf("拖拽松手应保留全选高亮(供再次操作 / 复制全文)")
+	if !m.inputSelecting {
+		t.Fatalf("拖到不同列后应进入选区态")
+	}
+	if got := m.inputSelectionText(); !strings.Contains(got, "hello") || strings.Contains(got, "world") {
+		t.Fatalf("选区文本应为片段 \"hello\",实得 %q", got)
 	}
 
-	// 2) 全选态下在输入区单击一下(按下即取消,松手无拖动)→ 高亮清除。
-	mm, _ = m.Update(tea.MouseClickMsg{X: px, Y: py, Button: tea.MouseLeft})
+	// 松手:保留高亮(供再操作 / 复制已发出)
+	mm, _ = m.Update(tea.MouseReleaseMsg{X: ex, Y: ey, Button: tea.MouseLeft})
 	m = mm.(model)
-	if m.inputAllSelected {
-		t.Fatalf("全选态下在输入区按下应立即取消高亮(#188 点一下取消)")
+	if !m.inputSelecting {
+		t.Fatalf("拖拽松手后应保留选区高亮")
 	}
-	mm, _ = m.Update(tea.MouseReleaseMsg{X: px, Y: py, Button: tea.MouseLeft})
+
+	// 单击一下(无拖动)→ 点一下取消
+	cx, cy := m.mouseInputAt(2)
+	mm, _ = m.Update(tea.MouseClickMsg{X: cx, Y: cy, Button: tea.MouseLeft})
 	m = mm.(model)
-	if m.inputAllSelected {
-		t.Fatalf("单击松手后不应再是全选态")
+	if m.inputSelecting {
+		t.Fatalf("单击按下应立即取消选区高亮(点一下取消)")
+	}
+	mm, _ = m.Update(tea.MouseReleaseMsg{X: cx, Y: cy, Button: tea.MouseLeft})
+	m = mm.(model)
+	if m.inputSelecting {
+		t.Fatalf("单击松手后不应再有选区")
+	}
+}
+
+// TestInputSelectionClearedByKey 验证选区是"复制标记":任何按键都取消它、再走正常处理
+// (不删 value)。
+func TestInputSelectionClearedByKey(t *testing.T) {
+	m := initModel()
+	wm, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = wm.(model)
+	m.input.SetValue("abcdef")
+
+	ax, ay := m.mouseInputAt(0)
+	ex, ey := m.mouseInputAt(3)
+	mm, _ := m.Update(tea.MouseClickMsg{X: ax, Y: ay, Button: tea.MouseLeft})
+	m = mm.(model)
+	mm, _ = m.Update(tea.MouseMotionMsg{X: ex, Y: ey, Button: tea.MouseLeft})
+	m = mm.(model)
+	if !m.inputSelecting {
+		t.Fatalf("前置失败:未进入选区态")
+	}
+
+	// 按方向键:取消选区,但 value 不动(不再是旧的"全选态清空"语义)
+	mm, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	m = mm.(model)
+	if m.inputSelecting {
+		t.Fatalf("按键后应取消选区标记")
+	}
+	if m.input.Value() != "abcdef" {
+		t.Fatalf("取消选区不应改动 value,实得 %q", m.input.Value())
 	}
 }

@@ -33,10 +33,6 @@ import (
 
 var imagePlaceholderRe = regexp.MustCompile(`\[Image #(\d+)\]`)
 
-// inputDragThreshold 是触发"输入框拖拽全选"所需的最小横向移动格数。
-// 双击/点击时常有 1~2 格抖动,设 3 可把这种抖动挡在外面,只有真拖动才全选。
-const inputDragThreshold = 3
-
 // 长文本粘贴阈值:超过 800 字符,或超过一定行数(按视口高度动态)的文本,不直接塞进输入框,
 // 而是存全文、在输入框放占位符 [Pasted text #N +X lines]。
 // 与 free-code 一致:字符阈值用 PASTE_THRESHOLD=800;行数阈值 = min(height-10, pasteLineThresholdCap),
@@ -220,10 +216,13 @@ type model struct {
 	selAnchor cellPos
 	selEnd    cellPos
 
-	// 输入框全选态(鼠标拖拽全选触发)。true 时输入框 value 整段反色显示,
-	// 下一次按键消费"全选"语义:输入字符 / 删除键 → 清空 value 后再 process;
-	// Esc / 方向键 → 仅取消选择,不动 value。
-	inputAllSelected bool
+	// 输入框选区态(鼠标拖拽触发的"部分选择",用于复制片段)。true 时按
+	// inputSelAnchor/inputSelEnd 在输入框可见行上画反色。坐标口径与 chat 选区一致
+	// (cellPos.col=显示列,line=textarea 可见行 taLines 的行号),复用 selection.go 的
+	// applySelectionHighlight / extractSelectionText。它只是"标记待复制",不参与编辑:
+	// 任何按键都会取消它、再走正常处理(不删 value)。
+	inputSelecting              bool
+	inputSelAnchor, inputSelEnd cellPos
 
 	// app 侧光标 blink 状态。textarea 用真实终端光标(SetVirtualCursor(false)),
 	// 而部分终端(VS Code 集成终端)不响应 DECSCUSR 的 blink 位,只好由 app 自己切
@@ -247,10 +246,9 @@ type model struct {
 	showReasoningModal bool
 	reasoningModalRow  int
 
-	// inputDragging 表示左键在输入框区域按下后还没松开,用来实现"输入框拖拽全选":
-	// 拖动中 → inputAllSelected=true 高亮整段;松手 → 复制输入框内容到剪贴板。
-	// inputDragStartX/Y 记按下时坐标:只有移动超过阈值(见 inputDragThreshold)才算"真拖动",
-	// 否则双击/点击时的微小抖动会被误判成拖拽 → 误全选。
+	// inputDragging 表示左键在输入框区域按下后还没松开,用来实现"输入框拖拽选择片段":
+	// 按下记锚点,拖动中更新 inputSelEnd + inputSelecting=true 画高亮,松手复制选中片段。
+	// inputDragStartX/Y 记按下时屏幕坐标(仅用于是否移动过的判定,真正选区走 cellPos)。
 	inputDragging                    bool
 	inputDragStartX, inputDragStartY int
 
@@ -1415,6 +1413,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(leftW - inputGutterWidth)
 		// 窗口尺寸变了 → wrap 重算 → 老 line 号失效,必须清选区
 		m.selecting = false
+			m.inputSelecting = false
 		m.refreshViewport()
 
 	case tea.MouseWheelMsg:
@@ -1457,13 +1456,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		inInput := msg.Y >= vpH && msg.Y < m.height && msg.X >= 0 && msg.X < leftW
 
 		if inInput {
-			// 单击进入输入区:清 chat 选区 + 记下拖拽起点(双击全选已移除;全选只走真拖动)。
-			// 后续 MouseMotion 要移动超过阈值才判定为拖拽全选,避免双击抖动误触。
-			// 若此刻已处于"拖拽全选"高亮态:本次按下即取消它(#188 —— 鼠标用户最自然的
-			// "点一下取消"此前没接上,只能靠键盘解除)。清掉后若接着是真拖动,MouseMotion 会
-			// 重新点亮;若只是单击松手,就实现了点一下取消(release 见 inputAllSelected==false)。
-			if m.inputAllSelected {
-				m.inputAllSelected = false
+			// 按下进入输入区:清 chat 选区 + 记拖拽锚点,准备"拖拽选择片段"。
+			// 同时把上一次的输入选区清掉:若接着是真拖动,MouseMotion 会重新点亮;
+			// 若只是单击松手,就等价于"点一下取消"(#188)。
+			m.inputSelecting = false
+			if a, ok := m.inputCellAt(msg.X, msg.Y); ok {
+				m.inputSelAnchor = a
+				m.inputSelEnd = a
 			}
 			m.inputDragging = true
 			m.inputDragStartX, m.inputDragStartY = msg.X, msg.Y
@@ -1506,17 +1505,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// 输入框拖拽全选:必须是"真拖动"——横向移过 inputDragThreshold 格,或换了行——才整段选高亮。
-		// 这样双击/点击时一两格的抖动不会被误判成拖拽。输入框内容通常一行/几行,够阈值就直接整段选。
+		// 输入框拖拽选择片段:把光标映射成输入可见行的 cellPos,只要落到与锚点不同的
+		// 单元格就开始/更新选区高亮(同格内的抖动不触发,避免单击误选)。
 		if m.inputDragging {
-			dx := msg.X - m.inputDragStartX
-			if dx < 0 {
-				dx = -dx
-			}
-			realDrag := dx >= inputDragThreshold || msg.Y != m.inputDragStartY
-			if realDrag && m.input.Value() != "" && !m.inputAllSelected {
-				m.inputAllSelected = true
-				m.refreshViewport()
+			if e, ok := m.inputCellAt(msg.X, msg.Y); ok && m.input.Value() != "" {
+				if e.col != m.inputSelAnchor.col || e.line != m.inputSelAnchor.line {
+					m.inputSelEnd = e
+					m.inputSelecting = true
+				} else {
+					// 拖回锚点同格 → 取消选区(选区收拢为空)。
+					m.inputSelEnd = e
+					m.inputSelecting = false
+				}
 			}
 			return m, nil
 		}
@@ -1565,12 +1565,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollbarDragging = false
 			return m, nil
 		}
-		// 输入框拖拽全选松手:复制整段输入框内容(不弹"已复制"提示)。
+		// 输入框拖拽松手:若真的选了一段(inputSelecting),复制选中片段并弹"已复制"提示
+		// (与 chat 区一致)。纯单击(无选区)→ 什么都不做 = 点一下取消。
 		if m.inputDragging {
 			m.inputDragging = false
-			if m.inputAllSelected {
-				if text := m.input.Value(); text != "" {
-					return m, clipboardWriteCmd(text)
+			if m.inputSelecting {
+				if text := m.inputSelectionText(); text != "" {
+					m.copyHint = T("copy.done")
+					m.copyHintX = msg.X
+					m.copyHintY = msg.Y
+					return m, tea.Batch(clipboardWriteCmd(text), clearCopyHintCmd())
 				}
 			}
 			return m, nil
@@ -1624,11 +1628,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 空 paste 内容 = 终端有 paste 事件但 PTY 里没文本 → 大概率剪贴板只有图片,主动读 PNG。
 		// 非空 paste 内容 = 普通文本粘贴,放掉让 textinput 自己接(它有 PasteMsg 处理)。
 		if msg.Content == "" {
-			if m.inputAllSelected {
-				m.input.SetValue("")
-				m.attachedImagePaths = nil
-				m.inputAllSelected = false
-			}
+			m.inputSelecting = false // 选区只是复制标记,粘贴图片不清空 value
 			if data, err := readClipboardImage(); err == nil {
 				path, ferr := saveAttachedImage(data, len(m.attachedImagePaths)+1)
 				if ferr != nil {
@@ -2279,38 +2279,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// 拖拽全选态预处理:整段反色高亮后,任何其他按键都要先消费"全选"语义。
-		// 放在外层 switch 之前,确保所有后续 case 都看不到带 selected 的状态。
-		if m.inputAllSelected {
-			switch msg.String() {
-			case "esc":
-				m.inputAllSelected = false
+		// 输入框选区(复制标记)预处理:它不参与编辑,任何按键都先取消它、再走正常处理。
+		// Esc 只取消不做别的;其余键取消后继续(打字/删除/移动光标照常,不再"清空 value")。
+		if m.inputSelecting {
+			m.inputSelecting = false
+			if msg.String() == "esc" {
 				return m, nil
-			case "ctrl+c":
-				// 保留原"非流式时退出"语义,不被 selected 改变
-			case "left", "right", "home", "end",
-				"pgup", "pgdown", "pageup", "pagedown":
-				// 方向 / 翻页 → 仅取消选择,光标移动交给后续 textinput.Update
-				m.inputAllSelected = false
-			case "up", "down":
-				// 全选态下的 ↑↓ 仅取消选择并交给 textarea 处理光标移动，
-				// 不进入历史翻阅（避免取消选择后意外跳历史）。
-				m.inputAllSelected = false
-				return m, nil
-			case "backspace", "delete", "ctrl+w", "ctrl+u":
-				m.input.SetValue("")
-				m.attachedImagePaths = nil
-				m.inputAllSelected = false
-				return m, nil
-			case "enter":
-				// 全选状态按 Enter:按原 enter 流程走(发送当前 value),同时清除选择标记
-				m.inputAllSelected = false
-				// 不 return,继续走外层 enter case
-			default:
-				// 可打印字符或其他键:先清空 value,再让 textinput 处理这次按键(就把新字符填入空 value)
-				m.input.SetValue("")
-				m.attachedImagePaths = nil
-				m.inputAllSelected = false
 			}
 		}
 		switch msg.String() {
@@ -2320,7 +2294,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(m.input.Value()) != "" || len(m.attachedImagePaths) > 0 {
 				m.input.SetValue("")
 				m.attachedImagePaths = nil
-				m.inputAllSelected = false
+				m.inputSelecting = false
 				m.lastCtrlCAt = time.Time{}
 				m.input.SetHeight(inputTextRows) // 多行清空后把视口/高度复位
 				return m, nil
