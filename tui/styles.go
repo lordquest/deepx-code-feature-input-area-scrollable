@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -223,16 +222,11 @@ func renderUserBubble(text string, viewportW int) string {
 		Width(boxW).
 		Padding(0, 1)
 	bar := lipgloss.NewStyle().Foreground(userBubbleBar).Render("┃")
-	// lipgloss 的 Width 只做按词边界的软折行:超长无空格单行(日志/JSON/minified 代码)
-	// 找不到断词点就不硬断,会横向溢出 chat 区。再套一层 ansi.Wrap 做硬折行兜底,
-	// 任何超宽行都被强制断到内容区宽内(box 带左右 Padding(0,1) 各 1 列,内容宽 = boxW-2),
-	// 与模型回复走 glamour 的一致,避免粘贴长文本后错乱。
-	innerW := boxW - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	rendered := ansi.Wrap(box.Render(text), innerW, "")
-	lines := strings.Split(rendered, "\n")
+	// lipgloss 的 Width 已经会硬折行:超长无空格单行(日志/JSON/minified 代码)找不到断词点
+	// 也会强制断到 boxW 内、并把每行补白到 boxW,不会横向溢出 chat 区。因此这里直接按 \n 切行
+	// 即可。切勿再套一层 ansi.Wrap ——那是对"已折行 + 已补白"的内容二次折行,会把行尾补白
+	// 顶到新行、生成交替空行(双倍行距)并打散补白,反而把气泡显示搞乱(见 user_bubble_test)。
+	lines := strings.Split(box.Render(text), "\n")
 	for i, ln := range lines {
 		lines[i] = bar + ln
 	}
