@@ -131,6 +131,78 @@ func extractSelectionText(wrapped string, a, b cellPos, width int) string {
 	return strings.Join(out, "\n")
 }
 
+// inputTextTopY 返回输入框 textarea 文本第一行在屏幕上的 Y(与 view.go 的排布口径一致):
+// body 高度 + 排队区行数 + 顶部留白。用于把鼠标 Y 映射成 textarea 可见行号。
+func (m model) inputTextTopY() int {
+	leftW, _ := m.layout()
+	queuedH := len(m.queuedDisplayLines(leftW))
+	bodyH := m.height - inputAreaHeight - queuedH
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	return bodyH + queuedH + inputTopPad
+}
+
+// inputCellAt 把屏幕坐标 (x,y) 映射成输入框可见内容里的 cellPos(col=显示列,
+// line=textarea 可见行 taLines 的行号)。坐标口径与 view.go 渲染一致:内容从
+// gutter 右边(inputGutterWidth 列)起、逐行对应 m.input.View() 的行。col 夹到该行
+// 实际文字宽度内(点到文字末尾之后即贴到行尾),line 夹到可见行范围内。
+func (m model) inputCellAt(x, y int) (cellPos, bool) {
+	leftW, _ := m.layout()
+	w := leftW - inputGutterWidth
+	if w < 1 {
+		return cellPos{}, false
+	}
+	taLines := strings.Split(m.input.View(), "\n")
+	if len(taLines) == 0 {
+		return cellPos{}, false
+	}
+	// textarea 固定高度会在文字下方补空行;把 line 夹到"最后一个有内容的可见行",
+	// 免得往空白区拖时把补白行也选进来。
+	lastContent := 0
+	for i, ln := range taLines {
+		if strings.TrimRight(ansi.Strip(ln), " ") != "" {
+			lastContent = i
+		}
+	}
+	line := y - m.inputTextTopY()
+	if line < 0 {
+		line = 0
+	}
+	if line > lastContent {
+		line = lastContent
+	}
+	col := x - inputGutterWidth
+	if col < 0 {
+		col = 0
+	}
+	// 夹到该可见行的实际文字宽度(去尾部补白):点到文字尾部之后就贴到文字末尾,
+	// 不把行尾补白算进选区。
+	lw := ansi.StringWidth(strings.TrimRight(ansi.Strip(taLines[line]), " "))
+	if col > lw {
+		col = lw
+	}
+	if col >= w {
+		col = w - 1
+	}
+	return cellPos{col: col, line: line}, true
+}
+
+// inputSelectionText 抠出输入框当前选区的纯文本(基于 m.input.View() 的可见行,
+// 复用 chat 的 extractSelectionText)。因此软换行/纵向滚动都天然正确 —— 选的、抠的
+// 都是屏幕上看得见的那几行。选区为空返回 ""。
+func (m model) inputSelectionText() string {
+	if !m.inputSelecting {
+		return ""
+	}
+	leftW, _ := m.layout()
+	w := leftW - inputGutterWidth
+	if w < 1 {
+		return ""
+	}
+	return extractSelectionText(m.input.View(), m.inputSelAnchor, m.inputSelEnd, w)
+}
+
 // copySelection 把当前选区文本写进剪贴板,并弹一个"已复制"临时提示。选区为空返回 nil。
 //
 // 本地优先用原生剪贴板(pbcopy/xclip/clip.exe),**不再叠加 OSC52**:

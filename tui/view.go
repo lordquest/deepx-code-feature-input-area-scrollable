@@ -215,18 +215,13 @@ func (m model) View() tea.View {
 
 	// 输入列内容:gutter + textarea 逐行拼接,首行 "❱ ";上接活动状态行/留白,中间夹排队区。
 	taView := m.input.View()
-	taLines := strings.Split(taView, "\n")
-	if m.inputAllSelected {
-		// 逐行 strip 成纯文本再套反色:textarea 输出里的内部 reset(\x1b[0m)会取消整段反色,
-		// 导致全选看不到高亮。只反色每行实际文字,空行 / 尾部空白不动。
-		for i, ln := range taLines {
-			plain := strings.TrimRight(ansi.Strip(ln), " ")
-			if plain == "" {
-				continue
-			}
-			taLines[i] = ansiReverseOn + plain + ansiReverseOff
-		}
+	if m.inputSelecting {
+		// 鼠标拖拽选中的片段:复用 chat 的流式选区高亮(反色),坐标 = inputSelAnchor/End,
+		// 宽度 = textarea 显示宽(leftW - gutter)。它内部会 strip 选中段的 ANSI 再套反色,
+		// 规避 textarea 输出里的内部 reset 取消高亮的问题。
+		taView = applySelectionHighlight(taView, m.inputSelAnchor, m.inputSelEnd, leftW-inputGutterWidth)
 	}
+	taLines := strings.Split(taView, "\n")
 	inputRows := make([]string, len(taLines))
 	for i, tl := range taLines {
 		gutter := strings.Repeat(" ", inputGutterWidth)
