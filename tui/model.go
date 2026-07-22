@@ -547,8 +547,8 @@ type shadowResultMsg struct {
 }
 
 // compactTriggerPct 实时会话压缩触发阈值(上下文用量占窗口的百分比)。与 agent 包轮内 auto-compact
-// 对齐到 80%:留 20% 给本轮输出;1M 窗口下也有充足 headroom。
-const compactTriggerPct = 80
+// 对齐到 70%:留 30% 给本轮输出;1M 窗口下也有充足 headroom。
+const compactTriggerPct = 70
 
 // shadowPoints 影子热压的触发档位(上下文用量百分比)。30 起步而非 20:keepTarget 也是 20%,
 // 在 20% 处 history < keepTarget 会被 RunCompression 拒(白跑);30% 起 history 才够压。
@@ -2882,7 +2882,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 显示区按字节预算自动裁剪 (chatLog.Append/Open 内部已调 trim),
 		// 这里无需额外动作 — 旧的 trimDisplayTurns 按"10 轮"裁的逻辑已被 chatLog 取代。
 
-		// 检查是否需要触发会话压缩：估算 token 数接近窗口的 compactTriggerPct(80%)时触发。
+		// 检查是否需要触发会话压缩：估算 token 数接近窗口的 compactTriggerPct(70%)时触发。
 		ctxWin := m.models.Pro.ContextWindow
 		if ctxWin <= 0 {
 			ctxWin = 65536

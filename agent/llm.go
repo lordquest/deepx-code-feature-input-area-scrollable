@@ -38,8 +38,8 @@ const (
 
 	// compactTriggerPct:单个 turn 内,上一轮真实 prompt tokens 占模型上下文窗口达到这个百分比,
 	// 就在下次请求前自动压缩历史(对标 Claude Code 的 auto-compact:压缩+继续,而非熔断停)。
-	// 取 80 留 ~20% 给本轮输出;压缩后历史缩到 ~20% 窗口,不会立刻反复触发。
-	compactTriggerPct = 80
+	// 取 70 留 ~30% 给本轮输出;压缩后历史缩到 ~20% 窗口,不会立刻反复触发。
+	compactTriggerPct = 70
 
 	// maxAPIRetries:streamOnce 在「进入流式之前」失败(网络错 / 429 限流 / 5xx 服务端错误)时的最大重试次数。
 	// 只重试这类瞬时错误,且只在还没吐任何 token 给 UI 时重试(进流式后的中途断不在此列,重试会重复吐字)。
@@ -712,11 +712,13 @@ func StartStream(
 			}
 
 			// 把本轮 assistant 回复写入历史(含 reasoning_content,thinking 模型下轮需要)
+			// Write/Update 工具调用的 content 参数截断到 maxStoredArgBytes 字符,
+			// 避免完整文件内容撑爆上下文(文件已实际写入,历史只保留引用即可)。
 			convo = append(convo, ChatMessage{
 				Role:             "assistant",
 				Content:          assistantContent,
 				ReasoningContent: reasoning,
-				ToolCalls:        toolCalls,
+				ToolCalls:        truncateToolCallArgs(toolCalls),
 			})
 
 			if len(toolCalls) == 0 {
@@ -1614,4 +1616,48 @@ func runExecutorGuarded(t *tools.Tool, args map[string]any) tools.ToolResult {
 			Success: false,
 		}
 	}
+}
+
+// maxStoredArgBytes 是 Write/Update 工具调用参数存入历史的单字段字节上限。
+// 超过此长度的 content/old_string/new_string 会被截断,并在尾部追加标记说明。
+// 文件已实际写入/更新,历史只保留引用+预览即可,无需存全部内容撑上下文。
+const maxStoredArgBytes = 512
+
+// truncateToolCallArgs 截断 Write/Update 工具调用参数中的大字段,返回副本。
+// 只影响存入历史的版本,执行仍用原始 toolCalls,互不影响。
+func truncateToolCallArgs(tcs []ToolCall) []ToolCall {
+	out := make([]ToolCall, len(tcs))
+	for i, tc := range tcs {
+		out[i] = tc
+		switch tc.Function.Name {
+		case "Write":
+			out[i].Function.Arguments = truncateArgField(out[i].Function.Arguments, "content")
+		case "Update":
+			out[i].Function.Arguments = truncateArgField(out[i].Function.Arguments, "old_string")
+			out[i].Function.Arguments = truncateArgField(out[i].Function.Arguments, "new_string")
+		}
+	}
+	return out
+}
+
+// truncateArgField 解析 JSON arguments,把指定字段截断到 maxStoredArgBytes。
+// 解析失败或字段不存在则原样返回。
+func truncateArgField(argsJSON, field string) string {
+	if len(argsJSON) <= maxStoredArgBytes {
+		return argsJSON
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return argsJSON
+	}
+	val, ok := args[field].(string)
+	if !ok || len(val) <= maxStoredArgBytes {
+		return argsJSON
+	}
+	args[field] = val[:maxStoredArgBytes] + "…[已截断,完整内容见文件]"
+	b, err := json.Marshal(args)
+	if err != nil {
+		return argsJSON
+	}
+	return string(b)
 }

@@ -18,8 +18,8 @@ import (
 // bubbletea 胶水(触发时机、tea.Cmd 包装、消息处理、读 model/session)仍在 tui 包,调用这里的导出函数。
 
 // keepRecentTurns 是压缩时至少保留的最近 user 轮数下限(与 20% 预算取较大者)。
-// 5 轮通常能覆盖"当前任务 + 最近指代",又不过度占用预算。可按需调整。
-const keepRecentTurns = 5
+// 2 轮能覆盖"最近指代",同时大幅减少过度保留。可按需调整。
+const keepRecentTurns = 2
 
 // compactionTimeout 是摘要 LLM 调用的硬超时。没有它,卡住的请求会让压缩锁永远占住、把所有压缩堵死。
 // 给得宽松(容纳大摘要生成),只为兜住"永不返回",超时即失败、下轮重试。
@@ -218,7 +218,7 @@ func RunCompression(lastSystemPrompt, lastToolSpecsJSON string, history []ChatMe
 			break
 		}
 	}
-	turnStart := len(history) // 最近 keepRecentTurns 个 user 轮;不足 5 轮则保持 len(不参与取 min)
+	turnStart := len(history) // 最近 keepRecentTurns 个 user 轮;不足则保持 len(不参与取 min)
 	uc := 0
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Role == "user" {
