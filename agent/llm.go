@@ -712,13 +712,13 @@ func StartStream(
 			}
 
 			// 把本轮 assistant 回复写入历史(含 reasoning_content,thinking 模型下轮需要)
-			// Write/Update 工具调用的 content 参数截断到 maxStoredArgBytes 字符,
-			// 避免完整文件内容撑爆上下文(文件已实际写入,历史只保留引用即可)。
+			// Write 的大 content 换成文件引用描述(文件已实际写入,历史留引用即可、需要时 Read),
+			// Update 原样保留(其 diff 语义 Read 补不回来)。详见 rewriteToolCallArgsForHistory。
 			convo = append(convo, ChatMessage{
 				Role:             "assistant",
 				Content:          assistantContent,
 				ReasoningContent: reasoning,
-				ToolCalls:        truncateToolCallArgs(toolCalls),
+				ToolCalls:        rewriteToolCallArgsForHistory(toolCalls),
 			})
 
 			if len(toolCalls) == 0 {
@@ -1618,46 +1618,53 @@ func runExecutorGuarded(t *tools.Tool, args map[string]any) tools.ToolResult {
 	}
 }
 
-// maxStoredArgBytes 是 Write/Update 工具调用参数存入历史的单字段字节上限。
-// 超过此长度的 content/old_string/new_string 会被截断,并在尾部追加标记说明。
-// 文件已实际写入/更新,历史只保留引用+预览即可,无需存全部内容撑上下文。
-const maxStoredArgBytes = 512
+// maxInlineWriteContentBytes 是 Write 的 content 存入历史时保留原文的字节上限。
+// 超过则把 content 整体替换为文件引用描述(文件已实际写入,历史留引用即可、需要时 Read 取回),
+// 而不是截断出一段片段 —— 既避免完整文件内容撑爆上下文,也免去"按字节切多字节字符切出半个字"的麻烦。
+// 未超则原样保留:小内容占不了多少上下文,留着还能让模型看到自己刚写了什么。
+const maxInlineWriteContentBytes = 512
 
-// truncateToolCallArgs 截断 Write/Update 工具调用参数中的大字段,返回副本。
-// 只影响存入历史的版本,执行仍用原始 toolCalls,互不影响。
-func truncateToolCallArgs(tcs []ToolCall) []ToolCall {
+// rewriteToolCallArgsForHistory 生成"存入历史用"的 toolCalls 副本:
+// 把 Write 的大 content 替换成文件引用描述,避免完整文件内容撑爆上下文。
+// Update 一律原样保留 —— 其 old_string/new_string 承载"把什么改成了什么"的 diff 语义,
+// 这信息不在文件里、Read 也补不回来,故不裁剪。
+// 只影响存入历史的版本,执行仍用原始 toolCalls,二者互不影响(ToolCall/ToolCallFunc 皆值类型)。
+func rewriteToolCallArgsForHistory(tcs []ToolCall) []ToolCall {
 	out := make([]ToolCall, len(tcs))
 	for i, tc := range tcs {
 		out[i] = tc
-		switch tc.Function.Name {
-		case "Write":
-			out[i].Function.Arguments = truncateArgField(out[i].Function.Arguments, "content")
-		case "Update":
-			out[i].Function.Arguments = truncateArgField(out[i].Function.Arguments, "old_string")
-			out[i].Function.Arguments = truncateArgField(out[i].Function.Arguments, "new_string")
+		if tc.Function.Name == "Write" {
+			out[i].Function.Arguments = elideWriteContent(out[i].Function.Arguments)
 		}
 	}
 	return out
 }
 
-// truncateArgField 解析 JSON arguments,把指定字段截断到 maxStoredArgBytes。
-// 解析失败或字段不存在则原样返回。
-func truncateArgField(argsJSON, field string) string {
-	if len(argsJSON) <= maxStoredArgBytes {
-		return argsJSON
+// elideWriteContent 若 Write 的 content 超过 maxInlineWriteContentBytes,
+// 把它替换为 "[已写入 <path>,N 字节/M 行;需要内容用 Read 查看]" 的引用描述并重新序列化;
+// content 够短、解析失败、或字段缺失都原样返回。
+// 重新编码用 json.Encoder + SetEscapeHTML(false),避免 path 里的 < > & 被转义成 < 等。
+func elideWriteContent(argsJSON string) string {
+	if len(argsJSON) <= maxInlineWriteContentBytes {
+		return argsJSON // 整个 arguments 都没超,content 必然没超,免解析
 	}
 	var args map[string]any
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return argsJSON
 	}
-	val, ok := args[field].(string)
-	if !ok || len(val) <= maxStoredArgBytes {
+	content, ok := args["content"].(string)
+	if !ok || len(content) <= maxInlineWriteContentBytes {
 		return argsJSON
 	}
-	args[field] = val[:maxStoredArgBytes] + "…[已截断,完整内容见文件]"
-	b, err := json.Marshal(args)
-	if err != nil {
+	path, _ := args["path"].(string)
+	lines := strings.Count(content, "\n") + 1
+	args["content"] = fmt.Sprintf("[已写入 %s,%d 字节/%d 行;需要内容用 Read 查看]", path, len(content), lines)
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(args); err != nil {
 		return argsJSON
 	}
-	return string(b)
+	return strings.TrimRight(buf.String(), "\n") // Encode 会补一个换行,去掉
 }
