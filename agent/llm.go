@@ -613,6 +613,24 @@ func StartStream(
 				return
 			}
 
+			// 工具输出回收(reclaim,issue #201):比 LLM 摘要便宜的第一层,且不受 inLoopCompactOff 影响。
+			// 按 token 预算(窗口比例)把"较旧的工具结果内容"换成引用标记 —— 不删消息、不动结构、配对不坏。
+			// 度量按 token 而非 user 轮,因此能伸进最近 2 个 user 轮内部,回收"单个长任务轮里早几轮的大输出"
+			// (按 user 轮切的摘要够不着的部分,正是 #201 卡 73%/400 的根)。触发用"实时估算"(含本轮刚
+			// append 的工具结果),消除 lastPromptTokens 慢一拍导致的单轮越窗。与现有 clampToolOutput(96KB)/
+			// clampTurnToolOutput(256KB)暂并存,验证稳后再摘旧卡口。
+			if ctxWin := currentEntry.ContextWindow; ctxWin > 0 && len(convo) > 0 {
+				curEst := 0
+				for i := range convo {
+					curEst += MsgTokens(convo[i]) // 实时估算(与 clampMaxTokens 同口径);可后续复用其结果省一遍
+				}
+				if max(lastPromptTokens, curEst) >= ctxWin*compactTriggerPct/100 {
+					if reclaimToolOutputs(convo, ctxWin) {
+						ch <- HistoryUpdateMsg{History: convo}
+					}
+				}
+			}
+
 			// 循环内 auto-compact:上一轮 prompt 接近上下文窗口就先压缩历史腾空间再继续(不熔断停)。
 			// 对标 Claude Code:压缩 convo[1:] 成摘要、重建 [system(新摘要)]+尾部,新摘要经 CompactedMsg
 			// 回传 TUI 存 session(否则被剥的 system 摘要会丢失),history 截断经 HistoryUpdateMsg 同步。
@@ -1667,4 +1685,84 @@ func elideWriteContent(argsJSON string) string {
 		return argsJSON
 	}
 	return strings.TrimRight(buf.String(), "\n") // Encode 会补一个换行,去掉
+}
+
+// --- 工具输出回收(reclaim,issue #201)---
+//
+// 问题:deepx 的历史压缩按 user 轮切,保护最近 keepRecentTurns 个 user 轮。但"跑测试 / 长任务"
+// 常是一个 user 消息 + 几十轮工具调用,bloat 全在这一个被保护的 user 轮内部 —— 按 user 轮切的摘要
+// 够不着,于是卡在高位"无需压缩"甚至 400(见 issue #201;RunCompression 的 keepStart≤0 分支)。
+//
+// reclaim 独立于 user 轮摘要,按 token 预算回收"较旧的工具结果内容":保住最近 reclaimKeepPct 预算
+// + 最近 reclaimMinTailToolMsgs 条工具结果,更旧的把 Content 换成引用标记(壳留、配对不坏、可重取)。
+// 因为度量按 token 而非 user 轮,它能伸进被保护的 2 轮内部,回收轮内早几轮的大输出。无 LLM,也不受
+// inLoopCompactOff 影响 —— 摘要超时/拒绝时它照样能减负。
+
+const (
+	// reclaimKeepPct:保住"最近工具输出"的 token 预算,取上下文窗口的这个百分比。超出的更旧工具输出被回收。
+	reclaimKeepPct = 20
+	// reclaimMinTailToolMsgs:无论预算多小,至少保护最近这么多条工具结果不动(模型正在用)。
+	reclaimMinTailToolMsgs = 4
+	// reclaimMarkerPrefix:被回收工具结果的 Content 前缀,兼作幂等判据(再次 reclaim 时跳过、不重复计数)。
+	reclaimMarkerPrefix = "[已回收] "
+)
+
+// reclaimToolOutputs 就地把"较旧的工具结果内容"换成引用标记以回收上下文,返回是否发生改动。
+// 只改 Role=="tool" 消息的 Content;user/assistant 消息、工具调用骨架、ToolCallID 配对一律不动
+// (故 sanitizeToolPairs 安全、发给 API 的配对完整)。
+// 保护:最近 reclaimMinTailToolMsgs 条工具结果 + 最近 reclaimKeepPct 预算内的工具输出,留全。幂等。
+func reclaimToolOutputs(convo []ChatMessage, ctxWin int) bool {
+	if ctxWin <= 0 {
+		ctxWin = 65536
+	}
+	keepBudget := ctxWin * reclaimKeepPct / 100
+
+	// 预建 tool_call_id → path,避免每条被回收消息各做一次 O(n) 反查配对 assistant。
+	callPath := map[string]string{}
+	for _, m := range convo {
+		if m.Role != "assistant" {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			var args map[string]any
+			if json.Unmarshal([]byte(tc.Function.Arguments), &args) == nil {
+				if p, ok := args["path"].(string); ok {
+					callPath[tc.ID] = p
+				}
+			}
+		}
+	}
+
+	changed := false
+	toolSeen := 0   // 已遍历到的(未回收)工具结果条数,用于"最近 N 条"保护
+	keptTokens := 0 // 已保留的工具输出 token 累计,用于预算保护
+	for i := len(convo) - 1; i >= 0; i-- {
+		if convo[i].Role != "tool" {
+			continue
+		}
+		if strings.HasPrefix(convo[i].Content, reclaimMarkerPrefix) {
+			continue // 已回收:不计 tail、不计预算、不重复处理(幂等)
+		}
+		toolSeen++
+		if toolSeen <= reclaimMinTailToolMsgs || keptTokens < keepBudget {
+			keptTokens += MsgTokens(convo[i]) // 保护区:留全,并计入预算
+			continue
+		}
+		convo[i].Content = toolOutputReference(convo[i].Name, callPath[convo[i].ToolCallID])
+		changed = true
+	}
+	return changed
+}
+
+// toolOutputReference 生成被回收工具结果的引用标记:带工具名与 path(有则),
+// 让模型知道"这里原是什么调用的输出、需要时重新调用取回"。
+func toolOutputReference(name, path string) string {
+	label := name
+	if label == "" {
+		label = "工具"
+	}
+	if path != "" {
+		label += " " + path
+	}
+	return reclaimMarkerPrefix + label + " 的旧输出已省略以回收上下文,需要时请重新调用获取。"
 }
