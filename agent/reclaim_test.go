@@ -135,6 +135,67 @@ func TestReclaim_UnderBudgetNoChange(t *testing.T) {
 	}
 }
 
+func TestReclaim_SmallOldOutputsKept(t *testing.T) {
+	// 较新的几条大 Read 把 keptTokens 撑过预算;更旧的都是小 Bash 输出。
+	// 大的旧 Read 应被回收,小的旧 Bash 不该(占位≈原文,回收无意义)。
+	big := strings.Repeat("x", 8000)
+	convo := []ChatMessage{{Role: "system", Content: "s"}, {Role: "user", Content: "t"}}
+	for k := 0; k < 6; k++ { // 更旧:小 Bash
+		id := fmt.Sprintf("old%d", k)
+		convo = append(convo, asstCall(id, "Bash", `{"command":"echo"}`))
+		convo = append(convo, toolMsg(id, "Bash", "小结果"))
+	}
+	for k := 0; k < 5; k++ { // 较新:大 Read
+		id := fmt.Sprintf("new%d", k)
+		convo = append(convo, asstCall(id, "Read", fmt.Sprintf(`{"path":"f%d.go"}`, k)))
+		convo = append(convo, toolMsg(id, "Read", big))
+	}
+	reclaimToolOutputs(convo, 2048) // keepBudget≈409;5 条大 Read 远超,更旧的进入回收判定
+
+	reclaimedRead := false
+	for _, m := range convo {
+		if m.Role != "tool" || !strings.HasPrefix(m.Content, reclaimMarkerPrefix) {
+			continue
+		}
+		if m.Name == "Bash" {
+			t.Fatal("小的旧 Bash 输出不应被回收(低于 reclaimMinMsgTokens)")
+		}
+		if m.Name == "Read" {
+			reclaimedRead = true
+		}
+	}
+	if !reclaimedRead {
+		t.Fatal("大的旧 Read 输出应被回收(sanity)")
+	}
+}
+
+func TestReclaim_BelowTotalFloorNoChange(t *testing.T) {
+	// 总回收量低于聚合下限(reclaimMinTotalPct 窗口)时,整趟不动 —— 护缓存。
+	ctxWin := 100000                    // minTotal = 5000, keepBudget = 20000
+	huge := strings.Repeat("x", 40000)  // ~10k token,4 条就撑爆 keepBudget
+	medium := strings.Repeat("y", 1200) // > reclaimMinMsgTokens,但两条合计仍 < minTotal
+	convo := []ChatMessage{{Role: "system", Content: "s"}, {Role: "user", Content: "t"}}
+	for k := 0; k < 2; k++ { // 更旧:2 条 medium(会成为候选,但总量小)
+		id := fmt.Sprintf("old%d", k)
+		convo = append(convo, asstCall(id, "Read", `{"path":"o.go"}`))
+		convo = append(convo, toolMsg(id, "Read", medium))
+	}
+	for k := 0; k < reclaimMinTailToolMsgs; k++ { // 较新:huge 占满 tail + 撑爆预算
+		id := fmt.Sprintf("new%d", k)
+		convo = append(convo, asstCall(id, "Read", `{"path":"n.go"}`))
+		convo = append(convo, toolMsg(id, "Read", huge))
+	}
+
+	if reclaimToolOutputs(convo, ctxWin) {
+		t.Fatal("总回收量低于聚合下限时不应回收(护缓存)")
+	}
+	for _, m := range convo {
+		if m.Role == "tool" && strings.HasPrefix(m.Content, reclaimMarkerPrefix) {
+			t.Fatal("聚合下限未过,任何工具输出都不应被回收")
+		}
+	}
+}
+
 func TestReclaim_PairingPreserved(t *testing.T) {
 	// 回收后每条 tool 消息的 ToolCallID / Name 不变,配对完整。
 	convo := buildConvo(10, "Read", strings.Repeat("w", 6000))

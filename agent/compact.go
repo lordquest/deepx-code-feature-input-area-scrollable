@@ -22,8 +22,9 @@ import (
 const keepRecentTurns = 2
 
 // compactionTimeout 是摘要 LLM 调用的硬超时。没有它,卡住的请求会让压缩锁永远占住、把所有压缩堵死。
-// 给得宽松(容纳大摘要生成),只为兜住"永不返回",超时即失败、下轮重试。
-const compactionTimeout = 3 * time.Minute
+// 给得宽松(容纳大摘要生成 + 本地慢模型,如 4090D 上跑 qwen 摘要大历史,见 issue #201),
+// 只为兜住"永不返回",超时即失败、下轮重试。
+const compactionTimeout = 10 * time.Minute
 
 // compressionPrompt 是冷路径(无前缀快照)压缩历史时发给 LLM 的 system prompt。
 const compressionPrompt = `你是会话「工作状态 checkpoint」生成器。把对话历史提炼成一份结构化的当前工作状态快照,用于丢弃旧历史后延续上下文。
