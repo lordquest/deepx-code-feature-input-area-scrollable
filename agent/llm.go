@@ -1703,6 +1703,13 @@ const (
 	reclaimKeepPct = 20
 	// reclaimMinTailToolMsgs:无论预算多小,至少保护最近这么多条工具结果不动(模型正在用)。
 	reclaimMinTailToolMsgs = 4
+	// reclaimMinMsgTokens:单条工具输出小于这个 token 数就不回收 —— 占位标记本身也占地方,
+	// 回收小输出既省不了多少、又可能比原文还长,还白丢信息。只对真正占地方的大输出下手。
+	reclaimMinMsgTokens = 200
+	// reclaimMinTotalPct:整趟回收总量不足窗口这个百分比,就整趟不动。
+	// 每次 reclaim 都会击穿"最早被回收处往后"的前缀缓存,收益太小不值当 —— 攒够一坨再一次剪。
+	// 用百分比而非固定阈值:固定值在小窗口过于苛刻、大窗口又偏松。
+	reclaimMinTotalPct = 5
 	// reclaimMarkerPrefix:被回收工具结果的 Content 前缀,兼作幂等判据(再次 reclaim 时跳过、不重复计数)。
 	reclaimMarkerPrefix = "[已回收] "
 )
@@ -1711,6 +1718,7 @@ const (
 // 只改 Role=="tool" 消息的 Content;user/assistant 消息、工具调用骨架、ToolCallID 配对一律不动
 // (故 sanitizeToolPairs 安全、发给 API 的配对完整)。
 // 保护:最近 reclaimMinTailToolMsgs 条工具结果 + 最近 reclaimKeepPct 预算内的工具输出,留全。幂等。
+// 聚合下限:整趟能回收的总量不足 reclaimMinTotalPct 窗口就整趟不动 —— 避免为一点点收益击穿前缀缓存。
 func reclaimToolOutputs(convo []ChatMessage, ctxWin int) bool {
 	if ctxWin <= 0 {
 		ctxWin = 65536
@@ -1733,7 +1741,9 @@ func reclaimToolOutputs(convo []ChatMessage, ctxWin int) bool {
 		}
 	}
 
-	changed := false
+	// 第一趟:选出"会被回收"的工具结果下标,并累加回收总量(不改动 convo)。
+	var victims []int
+	reclaimable := 0
 	toolSeen := 0   // 已遍历到的(未回收)工具结果条数,用于"最近 N 条"保护
 	keptTokens := 0 // 已保留的工具输出 token 累计,用于预算保护
 	for i := len(convo) - 1; i >= 0; i-- {
@@ -1744,14 +1754,28 @@ func reclaimToolOutputs(convo []ChatMessage, ctxWin int) bool {
 			continue // 已回收:不计 tail、不计预算、不重复处理(幂等)
 		}
 		toolSeen++
+		tokens := MsgTokens(convo[i])
 		if toolSeen <= reclaimMinTailToolMsgs || keptTokens < keepBudget {
-			keptTokens += MsgTokens(convo[i]) // 保护区:留全,并计入预算
+			keptTokens += tokens // 保护区:留全,并计入预算
 			continue
 		}
-		convo[i].Content = toolOutputReference(convo[i].Name, callPath[convo[i].ToolCallID])
-		changed = true
+		if tokens < reclaimMinMsgTokens {
+			continue // 太小:占位≈原文,回收无意义,留着
+		}
+		victims = append(victims, i)
+		reclaimable += tokens
 	}
-	return changed
+
+	// 聚合下限:总回收量不够就整趟不动,不为小收益击穿缓存。
+	if reclaimable < ctxWin*reclaimMinTotalPct/100 {
+		return false
+	}
+
+	// 第二趟:落地回收。
+	for _, i := range victims {
+		convo[i].Content = toolOutputReference(convo[i].Name, callPath[convo[i].ToolCallID])
+	}
+	return len(victims) > 0
 }
 
 // toolOutputReference 生成被回收工具结果的引用标记:带工具名与 path(有则),
