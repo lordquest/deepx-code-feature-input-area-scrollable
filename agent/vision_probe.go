@@ -48,7 +48,7 @@ func ProbeVision(ctx context.Context, entry ModelEntry) (bool, error) {
 		return false, fmt.Errorf("probe: 模型或 base_url 为空")
 	}
 	// 本地部署的大模型(llama.cpp 等)首次跑图推理可能较慢,给足 60s;超时按瞬时错误处理
-	// (不缓存,下次启动重探),避免把"能识图但慢"的模型误判成不支持视觉(issue #194)。
+	// (不缓存,下次启动重探),避免把"能识图但慢"的模型误判为不支持视觉(issue #194)。
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -107,11 +107,12 @@ func ProbeVision(ctx context.Context, entry ModelEntry) (bool, error) {
 		// 归一化后再比:去掉大小写和所有非字母数字,这样模型把暗号拼成 "M-E-L-O-N" / "M E L O N"
 		// 也能命中。认出暗号 = 真看到了图,确定性结果,可缓存。
 		return strings.Contains(normalizeAlnum(reply), probeMarkerToken), nil
-	case resp.StatusCode >= 400 && resp.StatusCode < 500:
-		// 4xx 多半是"该模型不支持图片输入" → 确定性 false,可缓存。
-		return false, nil
-	default:
-		// 5xx 等:瞬时错误,不缓存。
+	case resp.StatusCode == 429 || resp.StatusCode >= 500:
+		// 429/5xx 是瞬时错误，不缓存；下次启动或重试还能再探。
 		return false, fmt.Errorf("probe HTTP %d: %s", resp.StatusCode, string(body))
+	case resp.StatusCode >= 400 && resp.StatusCode < 500:
+		// 其余 4xx 才是"该模型不支持图片输入" → 确定性 false，可缓存。
+		return false, nil
 	}
+	return false, fmt.Errorf("probe HTTP %d: %s", resp.StatusCode, string(body))
 }
